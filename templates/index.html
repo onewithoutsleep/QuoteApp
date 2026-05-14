@@ -1,0 +1,185 @@
+{% from "nav.html" import bottom_nav %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quote App</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        .fab {
+            position: fixed;
+            bottom: calc(68px + env(safe-area-inset-bottom) + 16px);
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: #2d89ef;
+            border: none;
+            box-shadow: 0 4px 12px rgba(45,137,239,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 999;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .fab:active { opacity: 0.85; transform: scale(0.95); }
+        .fab svg { width: 28px; height: 28px; fill: white; }
+
+        .quote-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .quote-address-bar {
+            background: #2d89ef;
+            color: white;
+            font-weight: bold;
+            font-size: 15px;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .quote-address-bar a {
+            color: white;
+            text-decoration: none;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .quote-address-bar a svg { width: 14px; height: 14px; fill: rgba(255,255,255,0.75); flex-shrink: 0; }
+        .quote-body { padding: 14px 16px; }
+        .quote-customer { font-size: 18px; font-weight: bold; color: #222; margin-bottom: 4px; }
+        .quote-contact { font-size: 13px; color: #888; margin-bottom: 10px; }
+        .quote-contact a { color: #2d89ef; text-decoration: none; font-weight: 500; }
+        .quote-prices { display: flex; gap: 8px; margin-bottom: 12px; }
+        .price-pill {
+            flex: 1;
+            background: #eef5fd;
+            border: 1.5px solid #b8d8f8;
+            border-radius: 8px;
+            padding: 8px 4px;
+            text-align: center;
+        }
+        .price-pill .label { font-size: 11px; color: #2d89ef; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; }
+        .price-pill .amount { font-size: 17px; font-weight: bold; color: #1a5fab; }
+        .quote-meta { font-size: 13px; color: #666; margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .meta-tag { background: #f0f7ff; border-radius: 6px; padding: 2px 8px; font-size: 12px; color: #2d89ef; font-weight: 500; }
+        .quote-notes { font-size: 13px; color: #888; border-top: 1px solid #f0f0f0; padding-top: 8px; margin-bottom: 10px; }
+        .quote-actions { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #f0f0f0; padding-top: 12px; }
+        .quote-actions a { flex: 1 1 calc(50% - 4px); }
+        .quote-actions button { width: 100%; font-size: 14px; padding: 10px 8px; background: #2d89ef; }
+        .quote-actions button.btn-green { background: #27ae60; }
+        .services-section { border-top: 1px solid #f0f0f0; margin-top: 12px; padding-top: 10px; }
+        .services-label { font-size: 12px; font-weight: bold; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+        .service-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f8f8f8; }
+        .service-row:last-child { border-bottom: none; }
+        .service-info { flex: 1; font-size: 14px; color: #444; }
+        .svc-badge { display: inline-block; border-radius: 5px; padding: 1px 7px; font-size: 12px; font-weight: bold; margin-right: 4px; }
+        .badge-type { background: #eef5fd; color: #2d89ef; }
+        .badge-done { background: #eafaf1; color: #27ae60; }
+        .badge-unpaid { background: #fef9e7; color: #d4a017; }
+        .service-edit-btn { display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50%; background:#eef5fd; color:#2d89ef; flex-shrink:0; margin-left:10px; }
+        .service-edit-btn svg { width:17px; height:17px; fill:currentColor; }
+    </style>
+</head>
+<body class="page-content">
+<div class="container">
+    <h2>Saved Quotes</h2>
+    {% for q in quotes %}
+    <div class="quote-card">
+        <div class="quote-address-bar">
+            <a href="https://maps.apple.com/?q={{ q['address'] | urlencode }}" target="_blank">
+                <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/></svg>
+                {{ q["address"] }}
+            </a>
+        </div>
+        <div class="quote-body">
+            <div class="quote-customer">{{ q["customer"] }}</div>
+            <div class="quote-contact">
+                {% if q["phone"] %}<a href="tel:{{ q['phone'] | replace('(','') | replace(')','') | replace(' ','-') | replace('.','-') }}" onclick="handlePhone(event, '{{ q['phone'] }}', '{{ q['phone'] | replace('(','') | replace(')','') | replace(' ','') | replace('-','') | replace('.','') }}')">{{ q["phone"] | fmt_phone }}</a>{% endif %}
+                {% if q["phone"] and q["email"] %} &nbsp;·&nbsp; {% endif %}
+                {% if q["email"] %}<a href="mailto:{{ q['email'] }}">{{ q["email"] }}</a>{% endif %}
+            </div>
+            <div class="quote-prices">
+                <div class="price-pill">
+                    <div class="label">Outside</div>
+                    <div class="amount">${{ q["outside_price"] | fmt_price }}</div>
+                </div>
+                <div class="price-pill">
+                    <div class="label">Inside</div>
+                    <div class="amount">${{ q["inside_price"] | fmt_price }}</div>
+                </div>
+                <div class="price-pill">
+                    <div class="label">Both</div>
+                    <div class="amount">${{ q["both_price"] | fmt_price }}</div>
+                </div>
+            </div>
+            <div class="quote-meta">
+                <span class="meta-tag">{{ q["windows"] }} windows</span>
+                <span class="meta-tag">{{ q["quote_date"] }}</span>
+                {% if q["found_via"] %}<span class="meta-tag">{{ q["found_via"] | capitalize }}</span>{% endif %}
+            </div>
+            {% if q["notes"] %}<div class="quote-notes">{{ q["notes"] }}</div>{% endif %}
+            <div class="quote-actions">
+                <a href="/edit/{{ q['id'] }}"><button>Edit</button></a>
+                <a href="/service/new/{{ q['id'] }}"><button class="btn-green">Book Service</button></a>
+                <a href="/email/{{ q['id'] }}"><button>Email Quote</button></a>
+                <a href="/text/{{ q['id'] }}"><button>Text Quote</button></a>
+            </div>
+            {% if q["services"] %}
+            <div class="services-section">
+                <div class="services-label">Booked Services</div>
+                {% for s in q["services"] %}
+                <div class="service-row">
+                    <div class="service-info">
+                        {% if s["type"] %}<span class="svc-badge badge-type">{{ s["type"] | capitalize }}</span>{% endif %}
+                        {% if s["completed"] %}<span class="svc-badge badge-done">✓ Done</span>{% endif %}
+                        {% if s["completed"] and not s["paid"] %}<span class="svc-badge badge-unpaid">Unpaid</span>{% endif %}
+                        {% if s["service_date"] %}{{ s["service_date"] }}{% endif %}
+                        {% if s["service_time"] %} at {{ s["service_time"] | time12 }}{% endif %}
+                        {% if s["price"] %} · <strong>${{ s["price"] | fmt_price }}</strong>{% endif %}
+                        {% if s["paid"] and s["amount_paid"] %} · <span style="color:#27ae60;">Paid ${{ s["amount_paid"] | fmt_price }}</span>{% endif %}
+                        {% if s["notes"] %}<br><span style="color:#aaa; font-size:13px;">{{ s["notes"] }}</span>{% endif %}
+                    </div>
+                    <a class="service-edit-btn" href="/service/edit/{{ s['id'] }}?back=/">
+                        <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <p style="text-align:center; color:#888;">No quotes yet. Add one to get started.</p>
+    {% endfor %}
+</div>
+{{ bottom_nav('quotes') }}
+<a href="/quote/new">
+    <button class="fab" aria-label="Add Quote">
+        <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+    </button>
+</a>
+<script>
+function handlePhone(e, rawPhone, digits) {
+    e.preventDefault();
+    const sheet = document.createElement('div');
+    sheet.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;justify-content:flex-end;background:rgba(0,0,0,0.4);';
+    sheet.innerHTML = `
+        <div style="background:#fff;border-radius:16px 16px 0 0;padding:20px 16px 32px;display:flex;flex-direction:column;gap:10px;">
+            <div style="text-align:center;font-weight:bold;font-size:16px;color:#333;margin-bottom:4px;">${rawPhone}</div>
+            <a href="tel:${digits}" style="display:block;text-align:center;padding:16px;background:#2d89ef;color:white;border-radius:10px;font-weight:bold;font-size:17px;">📞 Call</a>
+            <a href="sms:${digits}" style="display:block;text-align:center;padding:16px;background:#27ae60;color:white;border-radius:10px;font-weight:bold;font-size:17px;">💬 Text</a>
+            <button onclick="this.closest('div').parentElement.remove()" style="background:#f0f0f0;color:#333;border:none;border-radius:10px;padding:14px;font-size:16px;cursor:pointer;">Cancel</button>
+        </div>`;
+    sheet.addEventListener('click', function(ev){ if(ev.target===sheet) sheet.remove(); });
+    document.body.appendChild(sheet);
+}
+</script>
+</body>
+</html>

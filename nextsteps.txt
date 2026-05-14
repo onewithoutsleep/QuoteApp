@@ -1,0 +1,8 @@
+- make quotes look more like bookings, put address at top (blue bar), make the rest look better,
+- book service should show quote somewhere when entering price so i can have a reference
+- - bookings should look like a calandar, center in on todays date can see past amd futute tho
+- what happens if booking is past?
+- when booking complete should be able to say how much they paid
+- connect to calander
+- add see dot
+- change name of index.html to quotes.html
