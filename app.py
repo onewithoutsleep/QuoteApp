@@ -1,14 +1,57 @@
-from flask import Flask, request, redirect, render_template
+from flask import Flask, request, redirect, render_template, session, flash
 import sqlite3
 from datetime import date, datetime
 from urllib.parse import quote
 import os
 import requests
+import hashlib
+import re
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me")
 
-DB_PATH = "data/users/andrew.db"
+AUTH_DB_PATH = "data/auth.db"
+
+
+# -----------------------------
+# AUTH DATABASE
+# -----------------------------
+def get_auth_db():
+    os.makedirs(os.path.dirname(AUTH_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(AUTH_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "username" not in session:
+            return redirect("/login")
+        return f(*args, **kwargs)
+    return decorated
+
+
+def current_user():
+    return session.get("username")
+
+
+def user_db_path(username):
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", username)
+    return f"data/users/{safe}.db"
 
 
 # -----------------------------
@@ -68,9 +111,12 @@ def urlencode_filter(value):
 # -----------------------------
 # DATABASE HELPER
 # -----------------------------
-def get_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+def get_db(username=None):
+    if username is None:
+        username = current_user()
+    db_path = user_db_path(username)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
 
@@ -321,9 +367,67 @@ def get_house_or_404(conn, house_id):
 
 
 # -----------------------------
+# AUTH ROUTES
+# -----------------------------
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        password = request.form.get("password", "")
+        conn = get_auth_db()
+        user = conn.execute(
+            "SELECT * FROM users WHERE username=?", (username,)
+        ).fetchone()
+        conn.close()
+        if user and user["password"] == hash_password(password):
+            session["username"] = username
+            return redirect("/")
+        error = "Invalid username or password."
+    return render_template("login.html", error=error, mode="login")
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        password = request.form.get("password", "")
+        confirm  = request.form.get("confirm", "")
+        if not username or not password:
+            error = "Username and password are required."
+        elif not re.match(r"^[a-zA-Z0-9_-]{2,32}$", username):
+            error = "Username may only contain letters, numbers, underscores, and hyphens (2-32 chars)."
+        elif password != confirm:
+            error = "Passwords do not match."
+        else:
+            conn = get_auth_db()
+            try:
+                conn.execute(
+                    "INSERT INTO users (username, password) VALUES (?, ?)",
+                    (username, hash_password(password))
+                )
+                conn.commit()
+                conn.close()
+                session["username"] = username
+                return redirect("/")
+            except sqlite3.IntegrityError:
+                conn.close()
+                error = "That username is already taken."
+    return render_template("login.html", error=error, mode="register")
+
+
+@app.route("/logout")
+def logout():
+    session.pop("username", None)
+    return redirect("/login")
+
+
+# -----------------------------
 # HOME PAGE
 # -----------------------------
 @app.route("/")
+@login_required
 def home():
     conn = get_db()
     quotes = conn.execute("""
@@ -346,6 +450,7 @@ def home():
 # NEW QUOTE
 # -----------------------------
 @app.route("/quote/new", methods=["GET", "POST"])
+@login_required
 def new_quote():
     if request.method == "POST":
         house_id  = request.form.get("house_id", "").strip()
@@ -421,6 +526,7 @@ def new_quote():
 # EDIT QUOTE
 # -----------------------------
 @app.route("/edit/<int:id>", methods=["GET", "POST"])
+@login_required
 def edit(id):
     conn = get_db()
     c = conn.cursor()
@@ -478,6 +584,7 @@ def edit(id):
 # DELETE QUOTE (+ services + house)
 # -----------------------------
 @app.route("/delete/<int:id>")
+@login_required
 def delete(id):
     conn = get_db()
     row = conn.execute("SELECT house_id FROM quotes WHERE id=?", (id,)).fetchone()
@@ -495,6 +602,7 @@ def delete(id):
 # BOOK SERVICE
 # -----------------------------
 @app.route("/service/new/<int:quote_id>")
+@login_required
 def service_new(quote_id):
     conn = get_db()
     q = conn.execute("""
@@ -513,6 +621,7 @@ def service_new(quote_id):
 
 
 @app.route("/service/book", methods=["POST"])
+@login_required
 def service_book():
     quote_id     = int(request.form["quote_id"])
     service_date = request.form.get("service_date", "")
@@ -543,6 +652,7 @@ def service_book():
 
 
 @app.route("/service/complete/<int:service_id>", methods=["POST"])
+@login_required
 def service_complete(service_id):
     """Quick AJAX endpoint to mark service complete/paid from bookings page."""
     completed = int(request.form.get("completed", 0))
@@ -568,6 +678,7 @@ def service_complete(service_id):
 
 
 @app.route("/service/delete/<int:service_id>")
+@login_required
 def service_delete(service_id):
     conn = get_db()
     # remember where to redirect back to
@@ -579,6 +690,7 @@ def service_delete(service_id):
 
 
 @app.route("/service/edit/<int:service_id>", methods=["GET", "POST"])
+@login_required
 def service_edit(service_id):
     conn = get_db()
     if request.method == "POST":
@@ -641,6 +753,7 @@ def service_edit(service_id):
 # BOOKINGS
 # -----------------------------
 @app.route("/bookings")
+@login_required
 def bookings():
     conn = get_db()
     services = conn.execute("""
@@ -659,6 +772,7 @@ def bookings():
 # SETTINGS
 # -----------------------------
 @app.route("/settings", methods=["GET", "POST"])
+@login_required
 def settings():
     if request.method == "POST":
         keys = ["outside_rate", "inside_rate", "both_rate",
@@ -687,6 +801,7 @@ def settings():
 # MAP
 # -----------------------------
 @app.route("/map")
+@login_required
 def map_view():
     conn = get_db()
     rows = conn.execute("""
@@ -712,6 +827,7 @@ def map_view():
 # ADD HOUSE (AJAX)
 # -----------------------------
 @app.route("/add_house", methods=["POST"])
+@login_required
 def add_house():
     lat        = request.form["lat"]
     lng        = request.form["lng"]
@@ -744,6 +860,7 @@ def add_house():
 # DELETE HOUSE (AJAX)
 # -----------------------------
 @app.route("/delete_knock/<int:id>")
+@login_required
 def delete_knock(id):
     conn = get_db()
     # Only allow deletion if no quote is attached
@@ -763,6 +880,7 @@ def delete_knock(id):
 # EMAIL QUOTE
 # -----------------------------
 @app.route("/email/<int:id>")
+@login_required
 def email_quote(id):
     conn = get_db()
     q = conn.execute("""
@@ -790,6 +908,7 @@ def email_quote(id):
 # TEXT QUOTE
 # -----------------------------
 @app.route("/text/<int:id>")
+@login_required
 def text_quote(id):
     conn = get_db()
     q = conn.execute("""
@@ -815,6 +934,7 @@ def text_quote(id):
 # MOVE HOUSE (AJAX)
 # -----------------------------
 @app.route("/move_house/<int:id>", methods=["POST"])
+@login_required
 def move_house(id):
     from flask import jsonify
     lat = request.form.get("lat")
@@ -841,6 +961,7 @@ def move_house(id):
 # EXPENSES
 # -----------------------------
 @app.route("/expenses", methods=["GET", "POST"])
+@login_required
 def expenses():
     conn = get_db()
     if request.method == "POST":
@@ -880,6 +1001,7 @@ def expenses():
 # STATS
 # -----------------------------
 @app.route("/stats")
+@login_required
 def stats():
     conn = get_db()
 

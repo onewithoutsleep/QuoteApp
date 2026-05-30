@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% if mode == 'register' %}Create Account{% else %}Login{% endif %}</title>
+</head>
+<body>
+    <h1>{% if mode == 'register' %}Create Account{% else %}Login{% endif %}</h1>
+
+    {% if error %}
+        <p style="color:red;">{{ error }}</p>
+    {% endif %}
+
+    {% if mode == 'register' %}
+        <form method="POST" action="/register">
+            <div>
+                <label for="username">Username</label><br>
+                <input type="text" id="username" name="username" required autofocus>
+            </div>
+            <div>
+                <label for="password">Password</label><br>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <div>
+                <label for="confirm">Confirm Password</label><br>
+                <input type="password" id="confirm" name="confirm" required>
+            </div>
+            <br>
+            <button type="submit">Create Account</button>
+        </form>
+        <br>
+        <p>Already have an account? <a href="/login">Log in</a></p>
+    {% else %}
+        <form method="POST" action="/login">
+            <div>
+                <label for="username">Username</label><br>
+                <input type="text" id="username" name="username" required autofocus>
+            </div>
+            <div>
+                <label for="password">Password</label><br>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <br>
+            <button type="submit">Log In</button>
+        </form>
+        <br>
+        <p>Don't have an account? <a href="/register">Create one</a></p>
+    {% endif %}
+</body>
+</html>
