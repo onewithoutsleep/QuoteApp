@@ -128,6 +128,7 @@
             <div class="quote-actions">
                 <a href="/edit/{{ q['id'] }}"><button>Edit</button></a>
                 <a href="/service/new/{{ q['id'] }}"><button class="btn-green">Book Service</button></a>
+                <a href="/map?highlight={{ q['house_id'] }}"><button style="background:#27ae60;">Map</button></a>
                 <a href="/email/{{ q['id'] }}"><button>Email Quote</button></a>
                 <a href="/text/{{ q['id'] }}"><button>Text Quote</button></a>
             </div>
@@ -173,8 +174,8 @@ function handlePhone(e, rawPhone, digits) {
     sheet.innerHTML = `
         <div style="background:#fff;border-radius:16px 16px 0 0;padding:20px 16px 32px;display:flex;flex-direction:column;gap:10px;">
             <div style="text-align:center;font-weight:bold;font-size:16px;color:#333;margin-bottom:4px;">${rawPhone}</div>
-            <a href="tel:${digits}" style="display:block;text-align:center;padding:16px;background:#2d89ef;color:white;border-radius:10px;font-weight:bold;font-size:17px;">📞 Call</a>
-            <a href="sms:${digits}" style="display:block;text-align:center;padding:16px;background:#27ae60;color:white;border-radius:10px;font-weight:bold;font-size:17px;">💬 Text</a>
+            <a href="tel:${digits}" style="display:block;text-align:center;padding:16px;background:#2d89ef;color:white;border-radius:10px;font-weight:bold;font-size:17px;">Call</a>
+            <a href="sms:${digits}" style="display:block;text-align:center;padding:16px;background:#27ae60;color:white;border-radius:10px;font-weight:bold;font-size:17px;">Text</a>
             <button onclick="this.closest('div').parentElement.remove()" style="background:#f0f0f0;color:#333;border:none;border-radius:10px;padding:14px;font-size:16px;cursor:pointer;">Cancel</button>
         </div>`;
     sheet.addEventListener('click', function(ev){ if(ev.target===sheet) sheet.remove(); });

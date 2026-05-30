@@ -20,13 +20,13 @@
         }
 
         .leaflet-popup-content {
-            font-size: 20px;
-            min-width: 260px;
+            font-size: 16px;
+            min-width: 220px;
         }
 
         .leaflet-popup-content button {
-            font-size: 18px;
-            padding: 10px 16px;
+            font-size: 15px;
+            padding: 9px 14px;
             margin: 4px 4px 0 0;
             border-radius: 8px;
             border: none;
@@ -41,7 +41,6 @@
             border-radius: 12px;
         }
 
-        /* Pulsing blue current-location dot */
         .location-dot {
             animation: locationPulse 2s ease-in-out infinite;
         }
@@ -62,6 +61,7 @@
 <script>
     const houses = {{ houses | tojson }};
     const fallbackCenter = {{ fallback_center | tojson }};
+    const highlightId = {{ request.args.get('highlight', 'null') }};
 </script>
 <script src="/static/script.js"></script>
 

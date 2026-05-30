@@ -65,6 +65,44 @@ if (document.getElementById("map")) {
         "Satellite": satellite
     }).addTo(map);
 
+    // ── MOVE MODE ──────────────────────────────────────────────────
+    let moveMode = false;
+    let selectedMarker = null;
+    let selectedHouseId = null;
+
+    window.toggleMoveMode = function(houseId, marker) {
+        if (moveMode && selectedHouseId === houseId) {
+            // cancel
+            moveMode = false;
+            selectedMarker = null;
+            selectedHouseId = null;
+            map.closePopup();
+            return;
+        }
+        moveMode = true;
+        selectedMarker = marker;
+        selectedHouseId = houseId;
+        map.closePopup();
+    };
+
+    async function moveMarker(houseId, marker, lat, lng) {
+        try {
+            const form = new FormData();
+            form.append('lat', lat);
+            form.append('lng', lng);
+            const res = await fetch(`/move_house/${houseId}`, { method: 'POST', body: form });
+            const result = await res.json();
+            if (result.status === 'ok') {
+                marker.setLatLng([lat, lng]);
+            }
+        } catch(err) {
+            console.error('Move error:', err);
+        }
+        moveMode = false;
+        selectedMarker = null;
+        selectedHouseId = null;
+    }
+
 
     // ── CURRENT LOCATION ───────────────────────────────────────────
     let locationDot = null;
@@ -162,7 +200,7 @@ if (document.getElementById("map")) {
         return `${h12}:${mStr} ${ampm}`;
     }
 
-    function popupHtml(h) {
+    function popupHtml(h, marker) {
 
         const knockLine = h.knocked_at
             ? `<div style="font-size:14px;color:#888;margin-bottom:8px;">
@@ -206,6 +244,8 @@ if (document.getElementById("map")) {
             ? ""
             : `<button id="delete-${h.id}" style="background:#c0392b;">Delete</button>`;
 
+        const moveBtn = `<button id="move-${h.id}" style="background:#e67e22;" onclick="toggleMoveMode(${h.id}, _marker_${h.id})">Move Dot</button>`;
+
         return `
             <b>${h.address || "No Address"}</b><br>
             ${knockLine}
@@ -213,11 +253,17 @@ if (document.getElementById("map")) {
             ${bookingLine}
             ${actionBtn}
             ${deleteBtn}
+            ${moveBtn}
         `;
     }
 
 
+    // ── MARKER REGISTRY ───────────────────────────────────────────
+    const markerRegistry = {};
+
     // ── LOAD EXISTING HOUSES ──────────────────────────────────────
+    let highlightMarker = null;
+
     houses.forEach(h => {
 
         // validate coordinates
@@ -231,30 +277,61 @@ if (document.getElementById("map")) {
             return;
         }
 
+        const isHighlighted = (typeof highlightId !== 'undefined' && highlightId !== null && String(h.id) === String(highlightId));
+
         const marker = L.circle(
             [h.lat, h.lng],
             {
-                color: h.service_id ? "green" : h.quote_id ? "#2d89ef" : "red",
-                radius: 5,
-                fillOpacity: 0.7
+                color: isHighlighted ? "#e67e22" : (h.service_id ? "green" : h.quote_id ? "#2d89ef" : "red"),
+                radius: isHighlighted ? 9 : 5,
+                fillOpacity: 0.7,
+                weight: isHighlighted ? 3 : 2,
             }
         ).addTo(map);
 
-        marker.bindPopup(popupHtml(h));
+        markerRegistry[h.id] = marker;
+
+        if (isHighlighted) {
+            highlightMarker = marker;
+            map.setView([h.lat, h.lng], 19);
+            marker.openPopup();
+        }
+
+        marker.bindPopup(popupHtml(h, marker));
+
+        marker.on("click", () => {
+            if (moveMode) {
+                selectedMarker = marker;
+                selectedHouseId = h.id;
+                return;
+            }
+        });
 
         marker.on("popupopen", () => {
-
-            const btn = document.getElementById(`delete-${h.id}`);
-
-            if (btn) {
-                btn.onclick = () => deleteHouse(h.id, marker);
+            if (moveMode) return;
+            const delBtn = document.getElementById(`delete-${h.id}`);
+            if (delBtn) {
+                delBtn.onclick = () => deleteHouse(h.id, marker);
+            }
+            const movBtn = document.getElementById(`move-${h.id}`);
+            if (movBtn) {
+                movBtn.onclick = () => toggleMoveMode(h.id, marker);
             }
         });
     });
 
 
-    // ── CLICK TO ADD HOUSE ────────────────────────────────────────
+    // ── CLICK TO ADD HOUSE / MOVE DOT ────────────────────────────
     map.on("click", async function (e) {
+
+        // Move mode: relocate selected marker
+        if (moveMode && selectedMarker && selectedHouseId) {
+            const { lat, lng } = e.latlng;
+            await moveMarker(selectedHouseId, selectedMarker, lat, lng);
+            return;
+        }
+
+        if (moveMode) return; // move mode active but nothing selected yet
 
         try {
 
@@ -343,14 +420,17 @@ if (document.getElementById("map")) {
                 }
             ).addTo(map);
 
-            marker.bindPopup(popupHtml(houseData));
+            markerRegistry[result.id] = marker;
+            marker.bindPopup(popupHtml(houseData, marker));
 
             marker.on("popupopen", () => {
-
-                const btn = document.getElementById(`delete-${result.id}`);
-
-                if (btn) {
-                    btn.onclick = () => deleteHouse(result.id, marker);
+                const delBtn = document.getElementById(`delete-${result.id}`);
+                if (delBtn) {
+                    delBtn.onclick = () => deleteHouse(result.id, marker);
+                }
+                const movBtn = document.getElementById(`move-${result.id}`);
+                if (movBtn) {
+                    movBtn.onclick = () => toggleMoveMode(result.id, marker);
                 }
             });
 

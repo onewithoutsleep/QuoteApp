@@ -168,7 +168,7 @@
 
         <!-- Completion Section -->
         <div class="completion-section">
-            <h3>✓ Completion</h3>
+            <h3>Completion</h3>
 
             <div class="toggle-row">
                 <span class="toggle-label">Mark as Complete</span>
@@ -181,6 +181,11 @@
 
             <div class="payment-fields" id="paymentFields"
                  style="{{ '' if service.completed else 'display:none;' }}">
+
+                <label style="font-weight:bold; font-size:15px;">Minutes</label>
+                <input type="number" name="duration_minutes" placeholder="e.g. 45"
+                       value="{{ service.duration_minutes or '' }}"
+                       style="margin-bottom:8px;">
 
                 <div class="toggle-row" style="margin-bottom: 12px;">
                     <span class="toggle-label">Paid</span>

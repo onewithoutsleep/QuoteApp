@@ -206,8 +206,8 @@ function handlePhone(e, rawPhone, digits) {
     sheet.innerHTML = `
         <div class="sheet-body">
             <div class="sheet-title">${rawPhone}</div>
-            <a href="tel:${digits}" style="display:block;text-align:center;padding:16px;background:#2d89ef;color:white;border-radius:10px;font-weight:bold;font-size:17px;text-decoration:none;">📞 Call</a>
-            <a href="sms:${digits}" style="display:block;text-align:center;padding:16px;background:#27ae60;color:white;border-radius:10px;font-weight:bold;font-size:17px;text-decoration:none;">💬 Text</a>
+            <a href="tel:${digits}" style="display:block;text-align:center;padding:16px;background:#2d89ef;color:white;border-radius:10px;font-weight:bold;font-size:17px;text-decoration:none;">Call</a>
+            <a href="sms:${digits}" style="display:block;text-align:center;padding:16px;background:#27ae60;color:white;border-radius:10px;font-weight:bold;font-size:17px;text-decoration:none;">Text</a>
             <button class="sheet-cancel-btn" onclick="this.closest('.sheet-overlay').remove()">Cancel</button>
         </div>`;
     sheet.addEventListener('click', ev => { if(ev.target===sheet) sheet.remove(); });
@@ -230,6 +230,7 @@ function openCompleteSheet(svc) {
     const isComplete = !!svc.completed;
     const isPaid = !!svc.paid;
     const amtPaid = svc.amount_paid || '';
+    const durMins = svc.duration_minutes || '';
 
     sheet.innerHTML = `
         <div class="sheet-body" id="sheetBody">
@@ -245,6 +246,10 @@ function openCompleteSheet(svc) {
             </div>
 
             <div id="sPaySection" style="${isComplete ? '' : 'display:none'}">
+                <div id="sDurationSection">
+                    <label style="font-weight:bold;font-size:14px;color:#555;">Minutes</label>
+                    <input type="number" id="sDuration" class="sheet-input" placeholder="e.g. 45" value="${durMins}" style="margin-top:6px;margin-bottom:8px;">
+                </div>
                 <div class="toggle-row">
                     <span class="toggle-label">Paid</span>
                     <label class="toggle-switch">
@@ -278,11 +283,13 @@ async function saveCompletion(serviceId) {
     const completed = document.getElementById('sCompleted').checked ? 1 : 0;
     const paid = document.getElementById('sPaid') ? (document.getElementById('sPaid').checked ? 1 : 0) : 0;
     const amountPaid = document.getElementById('sAmtPaid') ? document.getElementById('sAmtPaid').value : '';
+    const durationMinutes = document.getElementById('sDuration') ? document.getElementById('sDuration').value : '';
 
     const form = new FormData();
     form.append('completed', completed);
     form.append('paid', paid);
     form.append('amount_paid', amountPaid);
+    form.append('duration_minutes', durationMinutes);
 
     try {
         await fetch(`/service/complete/${serviceId}`, { method: 'POST', body: form });
@@ -292,6 +299,7 @@ async function saveCompletion(serviceId) {
                 s.completed = completed;
                 s.paid = paid;
                 s.amount_paid = amountPaid ? parseFloat(amountPaid) : null;
+                s.duration_minutes = durationMinutes ? parseInt(durationMinutes) : null;
             }
         });
         // Rebuild byDate
@@ -398,7 +406,7 @@ function renderBookings() {
             const digits = rawPhone.replace(/\D/g,'');
             const mapsUrl = s.address ? `https://maps.apple.com/?q=${encodeURIComponent(s.address)}` : '#';
             const doneClass = s.completed ? 'is-done' : 'not-done';
-            const doneLabel = s.completed ? '✓ Done' : 'Mark Done';
+            const doneLabel = s.completed ? 'Done' : 'Mark Done';
             // Escape for onclick JSON
             const svcJson = JSON.stringify(s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
@@ -419,15 +427,20 @@ function renderBookings() {
                         </a>` : ''}
                         <div class="booking-meta" style="margin-top:4px;">
                             ${s.type ? `<span class="bk-badge bk-type">${s.type.charAt(0).toUpperCase()+s.type.slice(1)}</span>` : ''}
+                            ${s.windows ? `<span class="bk-badge" style="background:#f0f7ff;color:#555;">${s.windows} windows</span>` : ''}
                             ${s.completed && !s.paid ? '<span class="bk-badge bk-unpaid">Unpaid</span>' : ''}
                             ${s.paid && amtPaid ? `<span style="color:#27ae60;font-size:13px;font-weight:bold;">Paid $${amtPaid}</span>` : ''}
+                            ${s.completed && s.duration_minutes ? `<span class="bk-badge" style="background:#f5f0ff;color:#7c3aed;">${s.duration_minutes} min</span>` : ''}
                         </div>
                         ${s.notes ? `<div class="booking-notes">${s.notes}</div>` : ''}
                     </div>
                     <div class="booking-actions">
                         ${price ? `<div class="booking-price">$${price}</div>` : ''}
                         <button class="complete-btn ${doneClass}" onclick='openCompleteSheet(${JSON.stringify(s)})'>${doneLabel}</button>
-                        <a class="edit-link" href="/service/edit/${s.id}?back=/bookings">
+                        <a class="edit-link" href="/map?highlight=${s.house_id || ''}" title="Show on map" style="background:#eafaf1;color:#27ae60;">
+                            <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/></svg>
+                        </a>
+                        <a class="edit-link" href="/service/edit/${s.id}?back=/bookings" title="Edit">
                             <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
                         </a>
                     </div>

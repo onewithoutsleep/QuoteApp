@@ -121,9 +121,26 @@ def get_db():
     """)
     conn.commit()
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS expenses (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            expense_date TEXT,
+            category    TEXT,
+            description TEXT,
+            amount      REAL,
+            notes       TEXT
+        )
+    """)
+    conn.commit()
+
     # Migrate services table: add new columns if missing
     svc_cols = [r[1] for r in conn.execute("PRAGMA table_info(services)").fetchall()]
-    for col, defn in [("completed","INTEGER DEFAULT 0"), ("paid","INTEGER DEFAULT 0"), ("amount_paid","REAL")]:
+    for col, defn in [
+        ("completed","INTEGER DEFAULT 0"),
+        ("paid","INTEGER DEFAULT 0"),
+        ("amount_paid","REAL"),
+        ("duration_minutes","INTEGER"),
+    ]:
         if col not in svc_cols:
             conn.execute(f"ALTER TABLE services ADD COLUMN {col} {defn}")
     conn.commit()
@@ -531,14 +548,19 @@ def service_complete(service_id):
     completed = int(request.form.get("completed", 0))
     paid = int(request.form.get("paid", 0))
     amount_paid = request.form.get("amount_paid", "")
+    duration_minutes = request.form.get("duration_minutes", "")
     try:
         amount_paid = float(amount_paid) if amount_paid else None
     except ValueError:
         amount_paid = None
+    try:
+        duration_minutes = int(duration_minutes) if duration_minutes else None
+    except ValueError:
+        duration_minutes = None
     conn = get_db()
     conn.execute("""
-        UPDATE services SET completed=?, paid=?, amount_paid=? WHERE id=?
-    """, (completed, paid, amount_paid, service_id))
+        UPDATE services SET completed=?, paid=?, amount_paid=?, duration_minutes=? WHERE id=?
+    """, (completed, paid, amount_paid, duration_minutes, service_id))
     conn.commit()
     conn.close()
     from flask import jsonify
@@ -576,6 +598,7 @@ def service_edit(service_id):
         completed    = 1 if request.form.get("completed") else 0
         paid         = 1 if request.form.get("paid") else 0
         amount_paid  = request.form.get("amount_paid", "")
+        duration_minutes = request.form.get("duration_minutes", "")
         try:
             price = float(price) if price else None
         except ValueError:
@@ -584,13 +607,17 @@ def service_edit(service_id):
             amount_paid = float(amount_paid) if amount_paid else None
         except ValueError:
             amount_paid = None
+        try:
+            duration_minutes = int(duration_minutes) if duration_minutes else None
+        except ValueError:
+            duration_minutes = None
         conn.execute("""
             UPDATE services
             SET service_date=?, service_time=?, type=?, price=?, notes=?,
-                completed=?, paid=?, amount_paid=?
+                completed=?, paid=?, amount_paid=?, duration_minutes=?
             WHERE id=?
         """, (service_date, service_time, stype, price, notes,
-              completed, paid, amount_paid, service_id))
+              completed, paid, amount_paid, duration_minutes, service_id))
         conn.commit()
         conn.close()
         return redirect(back)
@@ -617,7 +644,7 @@ def service_edit(service_id):
 def bookings():
     conn = get_db()
     services = conn.execute("""
-        SELECT s.*, q.customer, q.phone, h.address
+        SELECT s.*, q.customer, q.phone, q.windows, q.house_id, h.address
         FROM services s
         JOIN quotes q ON q.id = s.quote_id
         JOIN houses h ON h.id = q.house_id
@@ -782,6 +809,151 @@ def text_quote(id):
         both=q["both_price"],
     )
     return redirect(f"sms:{q['phone']}?body={quote(body)}")
+
+
+# -----------------------------
+# MOVE HOUSE (AJAX)
+# -----------------------------
+@app.route("/move_house/<int:id>", methods=["POST"])
+def move_house(id):
+    from flask import jsonify
+    lat = request.form.get("lat")
+    lng = request.form.get("lng")
+    address = request.form.get("address", "").strip()
+    try:
+        lat = float(lat)
+        lng = float(lng)
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "msg": "bad coords"})
+    conn = get_db()
+    if address:
+        conn.execute("UPDATE houses SET lat=?, lng=?, address=? WHERE id=?",
+                     (lat, lng, normalize_address(address), id))
+    else:
+        conn.execute("UPDATE houses SET lat=?, lng=? WHERE id=?", (lat, lng, id))
+    conn.commit()
+    updated = conn.execute("SELECT * FROM houses WHERE id=?", (id,)).fetchone()
+    conn.close()
+    return jsonify({"status": "ok", "address": updated["address"], "lat": lat, "lng": lng})
+
+
+# -----------------------------
+# EXPENSES
+# -----------------------------
+@app.route("/expenses", methods=["GET", "POST"])
+def expenses():
+    conn = get_db()
+    if request.method == "POST":
+        action = request.form.get("action", "add")
+        if action == "delete":
+            exp_id = request.form.get("id")
+            if exp_id:
+                conn.execute("DELETE FROM expenses WHERE id=?", (exp_id,))
+                conn.commit()
+        else:
+            expense_date = request.form.get("expense_date", date.today().isoformat())
+            category     = request.form.get("category", "").strip()
+            description  = request.form.get("description", "").strip()
+            amount       = request.form.get("amount", "")
+            notes        = request.form.get("notes", "").strip()
+            try:
+                amount = float(amount) if amount else 0.0
+            except ValueError:
+                amount = 0.0
+            conn.execute("""
+                INSERT INTO expenses (expense_date, category, description, amount, notes)
+                VALUES (?, ?, ?, ?, ?)
+            """, (expense_date, category, description, amount, notes))
+            conn.commit()
+        conn.close()
+        return redirect("/expenses")
+
+    rows = conn.execute(
+        "SELECT * FROM expenses ORDER BY expense_date DESC, id DESC"
+    ).fetchall()
+    expenses_list = [dict(r) for r in rows]
+    conn.close()
+    return render_template("expenses.html", expenses=expenses_list, today=date.today().isoformat())
+
+
+# -----------------------------
+# STATS
+# -----------------------------
+@app.route("/stats")
+def stats():
+    conn = get_db()
+
+    total_houses = conn.execute("SELECT COUNT(*) FROM houses").fetchone()[0]
+    total_quotes = conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0]
+    total_services = conn.execute("SELECT COUNT(*) FROM services").fetchone()[0]
+    completed_services = conn.execute("SELECT COUNT(*) FROM services WHERE completed=1").fetchone()[0]
+    paid_services = conn.execute("SELECT COUNT(*) FROM services WHERE paid=1").fetchone()[0]
+
+    revenue_row = conn.execute("SELECT SUM(amount_paid) FROM services WHERE paid=1").fetchone()
+    total_revenue = revenue_row[0] or 0.0
+
+    price_row = conn.execute("SELECT SUM(price) FROM services WHERE completed=1").fetchone()
+    total_billed = price_row[0] or 0.0
+
+    expense_row = conn.execute("SELECT SUM(amount) FROM expenses").fetchone()
+    total_expenses = expense_row[0] or 0.0
+
+    net_profit = total_revenue - total_expenses
+
+    # Average job duration
+    dur_row = conn.execute(
+        "SELECT AVG(duration_minutes) FROM services WHERE completed=1 AND duration_minutes IS NOT NULL"
+    ).fetchone()
+    avg_duration = dur_row[0]
+
+    # Revenue by month
+    monthly = conn.execute("""
+        SELECT substr(service_date,1,7) AS month, SUM(amount_paid) AS revenue, COUNT(*) AS jobs
+        FROM services WHERE paid=1 AND service_date IS NOT NULL
+        GROUP BY month ORDER BY month DESC LIMIT 12
+    """).fetchall()
+    monthly_data = [dict(r) for r in monthly]
+
+    # Expenses by category
+    cat_expenses = conn.execute("""
+        SELECT category, SUM(amount) AS total
+        FROM expenses GROUP BY category ORDER BY total DESC
+    """).fetchall()
+    cat_data = [dict(r) for r in cat_expenses]
+
+    # Found-via breakdown
+    found_via = conn.execute("""
+        SELECT found_via, COUNT(*) AS cnt FROM quotes
+        WHERE found_via IS NOT NULL GROUP BY found_via ORDER BY cnt DESC
+    """).fetchall()
+    found_via_data = [dict(r) for r in found_via]
+
+    # Service type breakdown
+    svc_types = conn.execute("""
+        SELECT type, COUNT(*) AS cnt, SUM(amount_paid) AS revenue
+        FROM services WHERE completed=1
+        GROUP BY type ORDER BY cnt DESC
+    """).fetchall()
+    svc_type_data = [dict(r) for r in svc_types]
+
+    conn.close()
+
+    return render_template("stats.html",
+        total_houses=total_houses,
+        total_quotes=total_quotes,
+        total_services=total_services,
+        completed_services=completed_services,
+        paid_services=paid_services,
+        total_revenue=total_revenue,
+        total_billed=total_billed,
+        total_expenses=total_expenses,
+        net_profit=net_profit,
+        avg_duration=avg_duration,
+        monthly_data=monthly_data,
+        cat_data=cat_data,
+        found_via_data=found_via_data,
+        svc_type_data=svc_type_data,
+    )
 
 
 if __name__ == "__main__":
