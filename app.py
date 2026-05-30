@@ -16,20 +16,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+
 secret = os.environ.get("SECRET_KEY")
 if not secret:
     raise RuntimeError("SECRET_KEY not configured")
-
 app.secret_key = secret
 
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    storage_uri="redis://localhost:6379"
-)
+if os.environ.get("FLASK_ENV") == "production":
+    limiter = Limiter(
+        key_func=get_remote_address,
+        app=app,
+        storage_uri="redis://localhost:6379"
+    )
+else:
+    limiter = Limiter(
+        key_func=get_remote_address,
+        app=app,
+        storage_uri="memory://"
+    )
 
 AUTH_DB_PATH = "data/auth.db"
-
 
 # -----------------------------
 # AUTH DATABASE
@@ -47,10 +53,6 @@ def get_auth_db():
     """)
     conn.commit()
     return conn
-
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
 
 
 def login_required(f):

@@ -344,8 +344,8 @@ function buildStrip() {
         });
         strip.appendChild(el);
     });
-    const todayEl = strip.querySelector(`[data-date="${todayStr}"]`);
-    if (todayEl) setTimeout(() => todayEl.scrollIntoView({inline:'center',behavior:'smooth'}), 50);
+    const scrollTarget = strip.querySelector(`[data-date="${activeDate || todayStr}"]`);
+    if (scrollTarget) setTimeout(() => scrollTarget.scrollIntoView({inline:'center',behavior:'smooth'}), 50);
 }
 
 // ── BOOKING LIST ──────────────────────────────────────────────
