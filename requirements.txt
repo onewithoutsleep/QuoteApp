@@ -2,3 +2,5 @@ flask
 requests
 dotenv
 gunicorn
+flask-limiter
+redis

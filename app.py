@@ -1,5 +1,7 @@
 from flask import Flask, request, redirect, render_template, session, flash
-
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+import redis
 import sqlite3
 from datetime import date, datetime
 from urllib.parse import quote
@@ -21,8 +23,9 @@ if not secret:
 app.secret_key = secret
 
 limiter = Limiter(
-    key_func=lambda: request.remote_addr,
-    app=app
+    get_remote_address,
+    app=app,
+    storage_uri="redis://localhost:6379"
 )
 
 AUTH_DB_PATH = "data/auth.db"
@@ -32,7 +35,7 @@ AUTH_DB_PATH = "data/auth.db"
 # AUTH DATABASE
 # -----------------------------
 def get_auth_db():
-    os.makedirs(os.path.dirname(AUTH_DBd_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(AUTH_DB_PATH), exist_ok=True)
     conn = sqlite3.connect(AUTH_DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("""
