@@ -1,4 +1,5 @@
 from flask import Flask, request, redirect, render_template, session, flash
+
 import sqlite3
 from datetime import date, datetime
 from urllib.parse import quote
@@ -6,10 +7,23 @@ import os
 import requests
 import hashlib
 import re
+from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 
+from dotenv import load_dotenv
+load_dotenv()
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "change-me")
+secret = os.environ.get("SECRET_KEY")
+if not secret:
+    raise RuntimeError("SECRET_KEY not configured")
+
+app.secret_key = secret
+
+limiter = Limiter(
+    key_func=lambda: request.remote_addr,
+    app=app
+)
 
 AUTH_DB_PATH = "data/auth.db"
 
@@ -18,7 +32,7 @@ AUTH_DB_PATH = "data/auth.db"
 # AUTH DATABASE
 # -----------------------------
 def get_auth_db():
-    os.makedirs(os.path.dirname(AUTH_DB_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(AUTH_DBd_PATH), exist_ok=True)
     conn = sqlite3.connect(AUTH_DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("""
@@ -370,6 +384,7 @@ def get_house_or_404(conn, house_id):
 # AUTH ROUTES
 # -----------------------------
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
 def login():
     error = None
     if request.method == "POST":
@@ -380,7 +395,7 @@ def login():
             "SELECT * FROM users WHERE username=?", (username,)
         ).fetchone()
         conn.close()
-        if user and user["password"] == hash_password(password):
+        if user and check_password_hash(user["password"], password):
             session["username"] = username
             return redirect("/")
         error = "Invalid username or password."
@@ -405,7 +420,7 @@ def register():
             try:
                 conn.execute(
                     "INSERT INTO users (username, password) VALUES (?, ?)",
-                    (username, hash_password(password))
+                    (username, generate_password_hash(password))
                 )
                 conn.commit()
                 conn.close()
