@@ -1,0 +1,30 @@
+.fab {
+  position: fixed;
+  bottom: calc(68px + env(safe-area-inset-bottom) + 16px);
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #2d89ef;
+  border: none;
+  box-shadow: 0 4px 12px rgba(45, 137, 239, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 999;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  width: 56px;
+}
+
+.fab:active {
+  opacity: 0.85;
+  transform: scale(0.95);
+}
+
+.fab svg {
+  width: 28px;
+  height: 28px;
+  fill: white;
+}

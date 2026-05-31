@@ -1,0 +1,12 @@
+.settings-page .hint {
+  margin: 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.settings-page code {
+  background: #f0f0f0;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 13px;
+}

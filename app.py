@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, render_template, session, flash
+from flask import Flask, request, redirect, render_template, session, flash, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import redis
@@ -60,6 +60,15 @@ def login_required(f):
     def decorated(*args, **kwargs):
         if "username" not in session:
             return redirect("/login")
+        return f(*args, **kwargs)
+    return decorated
+
+
+def api_login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "username" not in session:
+            return jsonify({"error": "unauthorized"}), 401
         return f(*args, **kwargs)
     return decorated
 
@@ -444,168 +453,171 @@ def logout():
 
 
 # -----------------------------
-# HOME PAGE
+# SPA SHELL (all navigated pages)
 # -----------------------------
 @app.route("/")
+@app.route("/map")
+@app.route("/bookings")
+@app.route("/expenses")
+@app.route("/stats")
+@app.route("/settings")
+@app.route("/quote/new")
+@app.route("/edit/<int:id>")
+@app.route("/service/new/<int:quote_id>")
+@app.route("/service/edit/<int:service_id>")
 @login_required
-def home():
+def spa_shell():
+    return render_template("app.html")
+
+
+# -----------------------------
+# JSON API
+# -----------------------------
+def _row_dict(row):
+    return dict(row) if row else None
+
+
+def _parse_service_time(data):
+    t_hour = data.get("service_time_hour") or ""
+    t_min = data.get("service_time_min", "00")
+    t_ampm = data.get("service_time_ampm", "AM")
+    if t_hour:
+        h24 = int(t_hour) % 12 + (12 if t_ampm == "PM" else 0)
+        return f"{h24:02d}:{t_min}"
+    return data.get("service_time", "")
+
+
+def _parse_price(val):
+    if val is None or val == "":
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+@app.route("/api/session")
+@api_login_required
+def api_session():
+    return jsonify({"username": current_user()})
+
+
+@app.route("/api/rates")
+@api_login_required
+def api_rates():
+    outside_rate, inside_rate, both_rate = get_rates()
+    return jsonify({
+        "outside_rate": outside_rate,
+        "inside_rate": inside_rate,
+        "both_rate": both_rate,
+    })
+
+
+@app.route("/api/quotes")
+@api_login_required
+def api_quotes_list():
     conn = get_db()
     quotes = conn.execute("""
-        SELECT q.*, h.address
+        SELECT q.*, h.address, h.id AS house_id
         FROM quotes q
         JOIN houses h ON h.id = q.house_id
         ORDER BY q.id DESC
     """).fetchall()
-    quotes = [dict(q) for q in quotes]
+    result = []
     for q in quotes:
-        q["services"] = conn.execute(
-            "SELECT * FROM services WHERE quote_id=? ORDER BY service_date, service_time",
-            (q["id"],)
-        ).fetchall()
+        d = _row_dict(q)
+        d["services"] = [
+            _row_dict(s) for s in conn.execute(
+                "SELECT * FROM services WHERE quote_id=? ORDER BY service_date, service_time",
+                (q["id"],)
+            ).fetchall()
+        ]
+        result.append(d)
     conn.close()
-    return render_template("index.html", quotes=quotes)
+    return jsonify(result)
 
 
-# -----------------------------
-# NEW QUOTE
-# -----------------------------
-@app.route("/quote/new", methods=["GET", "POST"])
-@login_required
-def new_quote():
-    if request.method == "POST":
-        house_id  = request.form.get("house_id", "").strip()
-        customer  = request.form["customer"]
-        phone     = request.form["phone"]
-        email     = request.form["email"]
-        windows   = int(request.form["windows"])
-        outside   = float(request.form["outside"])
-        inside    = float(request.form["inside"])
-        both      = float(request.form["both"])
-        notes     = request.form["notes"]
-        quote_date = request.form["quote_date"]
-        found_via = request.form.get("found_via", "").strip() or None
-
-        conn = get_db()
-        c = conn.cursor()
-
-        if not house_id:
-            # Manual entry — geocode address and create a house row automatically
-            address = normalize_address(request.form.get("address", ""))
-            if not address:
-                conn.close()
-                return redirect("/quote/new")
-
-            existing = c.execute(
-                "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (address,)
-            ).fetchone()
-
-            if existing:
-                house_id = existing["id"]
-            else:
-                house_id = _geocode_and_create(c, address)
-                conn.commit()
-
-        c.execute("""
-            INSERT INTO quotes
-                (house_id, customer, phone, email, windows,
-                 outside_price, inside_price, both_price,
-                 notes, quote_date, found_via)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (int(house_id), customer, phone, email, windows,
-              outside, inside, both, notes, quote_date, found_via))
-        conn.commit()
-        conn.close()
-        return redirect("/")
-
-    # GET
-    house_id = request.args.get("house_id", "").strip()
-    house = None
-    if house_id:
-        conn = get_db()
-        house = get_house_or_404(conn, house_id)
-        conn.close()
-
-    outside_rate, inside_rate, both_rate = get_rates()
-    found_via = "knock" if house_id else ""
-
-    return render_template(
-        "quote_form.html",
-        today=date.today().isoformat(),
-        house=house,
-        house_id=house_id,
-        found_via=found_via,
-        outside_rate=outside_rate,
-        inside_rate=inside_rate,
-        both_rate=both_rate,
-        edit=False,
-        quote=None,
-    )
-
-
-# -----------------------------
-# EDIT QUOTE
-# -----------------------------
-@app.route("/edit/<int:id>", methods=["GET", "POST"])
-@login_required
-def edit(id):
+@app.route("/api/quotes/<int:id>")
+@api_login_required
+def api_quote_get(id):
     conn = get_db()
-    c = conn.cursor()
-
-    if request.method == "POST":
-        customer   = request.form["customer"]
-        phone      = request.form["phone"]
-        email      = request.form["email"]
-        windows    = int(request.form["windows"])
-        outside    = float(request.form["outside"])
-        inside     = float(request.form["inside"])
-        both       = float(request.form["both"])
-        notes      = request.form["notes"]
-        quote_date = request.form["quote_date"]
-        found_via  = request.form.get("found_via", "").strip() or None
-
-        c.execute("""
-            UPDATE quotes SET
-                customer=?, phone=?, email=?,
-                windows=?, outside_price=?, inside_price=?, both_price=?,
-                notes=?, quote_date=?, found_via=?
-            WHERE id=?
-        """, (customer, phone, email, windows,
-              outside, inside, both, notes, quote_date, found_via, id))
-        conn.commit()
-        conn.close()
-        return redirect("/")
-
-    # Join house so we have the address
-    quote_data = c.execute("""
+    q = conn.execute("""
         SELECT q.*, h.address, h.id AS house_id
         FROM quotes q
         JOIN houses h ON h.id = q.house_id
         WHERE q.id=?
     """, (id,)).fetchone()
     conn.close()
-
-    if quote_data is None:
-        return redirect("/")
-
-    outside_rate, inside_rate, both_rate = get_rates()
-    return render_template(
-        "quote_form.html",
-        quote=quote_data,
-        house_id=quote_data["house_id"],
-        edit=True,
-        found_via=quote_data["found_via"] or "",
-        outside_rate=outside_rate,
-        inside_rate=inside_rate,
-        both_rate=both_rate,
-    )
+    if q is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(_row_dict(q))
 
 
-# -----------------------------
-# DELETE QUOTE (+ services + house)
-# -----------------------------
-@app.route("/delete/<int:id>")
-@login_required
-def delete(id):
+@app.route("/api/quotes", methods=["POST"])
+@api_login_required
+def api_quote_create():
+    data = request.get_json(force=True)
+    conn = get_db()
+    c = conn.cursor()
+    house_id = (data.get("house_id") or "").strip()
+
+    if not house_id:
+        address = normalize_address(data.get("address") or "")
+        if not address:
+            conn.close()
+            return jsonify({"error": "address required"}), 400
+        existing = c.execute(
+            "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (address,)
+        ).fetchone()
+        if existing:
+            house_id = existing["id"]
+        else:
+            house_id = _geocode_and_create(c, address)
+            conn.commit()
+
+    c.execute("""
+        INSERT INTO quotes
+            (house_id, customer, phone, email, windows,
+             outside_price, inside_price, both_price,
+             notes, quote_date, found_via)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        int(house_id), data["customer"], data.get("phone"), data.get("email"),
+        int(data["windows"]), float(data["outside"]), float(data["inside"]),
+        float(data["both"]), data.get("notes"), data.get("quote_date"),
+        data.get("found_via"),
+    ))
+    conn.commit()
+    new_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    return jsonify({"id": new_id}), 201
+
+
+@app.route("/api/quotes/<int:id>", methods=["PUT"])
+@api_login_required
+def api_quote_update(id):
+    data = request.get_json(force=True)
+    conn = get_db()
+    conn.execute("""
+        UPDATE quotes SET
+            customer=?, phone=?, email=?,
+            windows=?, outside_price=?, inside_price=?, both_price=?,
+            notes=?, quote_date=?, found_via=?
+        WHERE id=?
+    """, (
+        data["customer"], data.get("phone"), data.get("email"),
+        int(data["windows"]), float(data["outside"]), float(data["inside"]),
+        float(data["both"]), data.get("notes"), data.get("quote_date"),
+        data.get("found_via"), id,
+    ))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/quotes/<int:id>", methods=["DELETE"])
+@api_login_required
+def api_quote_delete(id):
     conn = get_db()
     row = conn.execute("SELECT house_id FROM quotes WHERE id=?", (id,)).fetchone()
     if row:
@@ -615,166 +627,23 @@ def delete(id):
         conn.execute("DELETE FROM houses WHERE id=?", (house_id,))
         conn.commit()
     conn.close()
-    return redirect("/")
-
-
-# -----------------------------
-# BOOK SERVICE
-# -----------------------------
-@app.route("/service/new/<int:quote_id>")
-@login_required
-def service_new(quote_id):
-    conn = get_db()
-    q = conn.execute("""
-        SELECT q.*, h.address FROM quotes q
-        JOIN houses h ON h.id = q.house_id
-        WHERE q.id=?
-    """, (quote_id,)).fetchone()
-    conn.close()
-    if q is None:
-        return redirect("/")
-    return render_template(
-        "service_form.html",
-        quote=q,
-        today=date.today().isoformat(),
-    )
-
-
-@app.route("/service/book", methods=["POST"])
-@login_required
-def service_book():
-    quote_id     = int(request.form["quote_id"])
-    service_date = request.form.get("service_date", "")
-    # Assemble time from AM/PM picker
-    t_hour  = request.form.get("service_time_hour", "")
-    t_min   = request.form.get("service_time_min", "00")
-    t_ampm  = request.form.get("service_time_ampm", "AM")
-    if t_hour:
-        h24 = int(t_hour) % 12 + (12 if t_ampm == "PM" else 0)
-        service_time = f"{h24:02d}:{t_min}"
-    else:
-        service_time = request.form.get("service_time", "")
-    stype        = request.form.get("type", "")
-    price        = request.form.get("price", "")
-    notes        = request.form.get("notes", "")
-    try:
-        price = float(price) if price else None
-    except ValueError:
-        price = None
-    conn = get_db()
-    conn.execute("""
-        INSERT INTO services (quote_id, service_date, service_time, type, price, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (quote_id, service_date, service_time, stype, price, notes))
-    conn.commit()
-    conn.close()
-    return redirect("/")
-
-
-@app.route("/service/complete/<int:service_id>", methods=["POST"])
-@login_required
-def service_complete(service_id):
-    """Quick AJAX endpoint to mark service complete/paid from bookings page."""
-    completed = int(request.form.get("completed", 0))
-    paid = int(request.form.get("paid", 0))
-    amount_paid = request.form.get("amount_paid", "")
-    duration_minutes = request.form.get("duration_minutes", "")
-    try:
-        amount_paid = float(amount_paid) if amount_paid else None
-    except ValueError:
-        amount_paid = None
-    try:
-        duration_minutes = int(duration_minutes) if duration_minutes else None
-    except ValueError:
-        duration_minutes = None
-    conn = get_db()
-    conn.execute("""
-        UPDATE services SET completed=?, paid=?, amount_paid=?, duration_minutes=? WHERE id=?
-    """, (completed, paid, amount_paid, duration_minutes, service_id))
-    conn.commit()
-    conn.close()
-    from flask import jsonify
     return jsonify({"status": "ok"})
 
 
-@app.route("/service/delete/<int:service_id>")
-@login_required
-def service_delete(service_id):
+@app.route("/api/houses/<int:id>")
+@api_login_required
+def api_house_get(id):
     conn = get_db()
-    # remember where to redirect back to
-    back = request.args.get("back", "/")
-    conn.execute("DELETE FROM services WHERE id=?", (service_id,))
-    conn.commit()
+    house = get_house_or_404(conn, id)
     conn.close()
-    return redirect(back)
+    if house is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(_row_dict(house))
 
 
-@app.route("/service/edit/<int:service_id>", methods=["GET", "POST"])
-@login_required
-def service_edit(service_id):
-    conn = get_db()
-    if request.method == "POST":
-        service_date = request.form.get("service_date", "")
-        t_hour  = request.form.get("service_time_hour", "")
-        t_min   = request.form.get("service_time_min", "00")
-        t_ampm  = request.form.get("service_time_ampm", "AM")
-        if t_hour:
-            h24 = int(t_hour) % 12 + (12 if t_ampm == "PM" else 0)
-            service_time = f"{h24:02d}:{t_min}"
-        else:
-            service_time = request.form.get("service_time", "")
-        stype        = request.form.get("type", "")
-        price        = request.form.get("price", "")
-        notes        = request.form.get("notes", "")
-        back         = request.form.get("back", "/")
-        completed    = 1 if request.form.get("completed") else 0
-        paid         = 1 if request.form.get("paid") else 0
-        amount_paid  = request.form.get("amount_paid", "")
-        duration_minutes = request.form.get("duration_minutes", "")
-        try:
-            price = float(price) if price else None
-        except ValueError:
-            price = None
-        try:
-            amount_paid = float(amount_paid) if amount_paid else None
-        except ValueError:
-            amount_paid = None
-        try:
-            duration_minutes = int(duration_minutes) if duration_minutes else None
-        except ValueError:
-            duration_minutes = None
-        conn.execute("""
-            UPDATE services
-            SET service_date=?, service_time=?, type=?, price=?, notes=?,
-                completed=?, paid=?, amount_paid=?, duration_minutes=?
-            WHERE id=?
-        """, (service_date, service_time, stype, price, notes,
-              completed, paid, amount_paid, duration_minutes, service_id))
-        conn.commit()
-        conn.close()
-        return redirect(back)
-
-    s = conn.execute("""
-        SELECT s.*, q.customer, q.phone, q.outside_price, q.inside_price, q.both_price,
-               h.address, s.quote_id
-        FROM services s
-        JOIN quotes q ON q.id = s.quote_id
-        JOIN houses h ON h.id = q.house_id
-        WHERE s.id=?
-    """, (service_id,)).fetchone()
-    conn.close()
-    if s is None:
-        return redirect("/")
-    back = request.args.get("back", "/")
-    return render_template("service_edit.html", service=s, today=date.today().isoformat(), back=back)
-
-
-# -----------------------------
-# BOOKINGS
-# -----------------------------
-@app.route("/bookings")
-@login_required
-def bookings():
+@app.route("/api/bookings")
+@api_login_required
+def api_bookings():
     conn = get_db()
     services = conn.execute("""
         SELECT s.*, q.customer, q.phone, q.windows, q.house_id, h.address
@@ -783,46 +652,13 @@ def bookings():
         JOIN houses h ON h.id = q.house_id
         ORDER BY s.service_date, s.service_time
     """).fetchall()
-    services_list = [dict(r) for r in services]
     conn.close()
-    return render_template("bookings.html", services=services_list, services_json=services_list)
+    return jsonify([_row_dict(r) for r in services])
 
 
-# -----------------------------
-# SETTINGS
-# -----------------------------
-@app.route("/settings", methods=["GET", "POST"])
-@login_required
-def settings():
-    if request.method == "POST":
-        keys = ["outside_rate", "inside_rate", "both_rate",
-                "email_template", "text_template"]
-        conn = get_db()
-        for key in keys:
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                (key, request.form.get(key, ""))
-            )
-        conn.commit()
-        conn.close()
-        return redirect("/")
-
-    return render_template(
-        "settings.html",
-        outside_rate=get_setting("outside_rate"),
-        inside_rate=get_setting("inside_rate"),
-        both_rate=get_setting("both_rate"),
-        email_template=get_setting("email_template"),
-        text_template=get_setting("text_template"),
-    )
-
-
-# -----------------------------
-# MAP
-# -----------------------------
-@app.route("/map")
-@login_required
-def map_view():
+@app.route("/api/map")
+@api_login_required
+def api_map():
     conn = get_db()
     rows = conn.execute("""
         SELECT h.*, q.id AS quote_id, q.customer, s.id AS service_id,
@@ -831,69 +667,332 @@ def map_view():
         LEFT JOIN quotes q ON q.house_id = h.id
         LEFT JOIN services s ON s.quote_id = q.id
     """).fetchall()
-    houses = [dict(r) for r in rows]
+    houses = [_row_dict(r) for r in rows]
     conn.close()
-
-    # Find the most recently added house that has coords, for use as fallback center
     last_house = next(
         (h for h in reversed(houses) if h.get("lat") and h.get("lng")), None
     )
-    fallback_center = [last_house["lat"], last_house["lng"]] if last_house else [51.130218, -114.205008]
+    fallback_center = (
+        [last_house["lat"], last_house["lng"]] if last_house
+        else [51.130218, -114.205008]
+    )
+    return jsonify({"houses": houses, "fallback_center": fallback_center})
 
-    return render_template("map.html", houses=houses, fallback_center=fallback_center)
 
-
-# -----------------------------
-# ADD HOUSE (AJAX)
-# -----------------------------
-@app.route("/add_house", methods=["POST"])
-@login_required
-def add_house():
-    lat        = request.form["lat"]
-    lng        = request.form["lng"]
-    address    = normalize_address(request.form["address"])
+@app.route("/api/houses", methods=["POST"])
+@api_login_required
+def api_add_house():
+    if request.is_json:
+        data = request.get_json(force=True)
+        lat, lng, address = data["lat"], data["lng"], data["address"]
+    else:
+        lat = request.form["lat"]
+        lng = request.form["lng"]
+        address = request.form["address"]
+    address = normalize_address(address)
     knocked_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     conn = get_db()
     existing = conn.execute(
         "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (address,)
     ).fetchone()
-
     if existing:
         conn.close()
-        return {"status": "exists"}
+        return jsonify({"status": "exists"})
 
     conn.execute(
         "INSERT INTO houses (lat, lng, address, knocked_at) VALUES (?, ?, ?, ?)",
-        (lat, lng, address, knocked_at)
+        (lat, lng, address, knocked_at),
     )
     conn.commit()
     house_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.close()
+    return jsonify({
+        "status": "added", "id": house_id,
+        "lat": lat, "lng": lng, "address": address, "knocked_at": knocked_at,
+    })
 
-    return {"status": "added", "id": house_id,
-            "lat": lat, "lng": lng, "address": address,
-            "knocked_at": knocked_at}
 
-
-# -----------------------------
-# DELETE HOUSE (AJAX)
-# -----------------------------
-@app.route("/delete_knock/<int:id>")
-@login_required
-def delete_knock(id):
+@app.route("/api/houses/<int:id>", methods=["DELETE"])
+@api_login_required
+def api_delete_house(id):
     conn = get_db()
-    # Only allow deletion if no quote is attached
     linked = conn.execute(
         "SELECT id FROM quotes WHERE house_id=?", (id,)
     ).fetchone()
     if linked:
         conn.close()
-        return {"status": "has_quote"}
+        return jsonify({"status": "has_quote"})
     conn.execute("DELETE FROM houses WHERE id=?", (id,))
     conn.commit()
     conn.close()
-    return {"status": "deleted"}
+    return jsonify({"status": "deleted"})
+
+
+@app.route("/api/houses/<int:id>/move", methods=["POST"])
+@api_login_required
+def api_move_house(id):
+    if request.is_json:
+        data = request.get_json(force=True)
+        lat, lng, address = data.get("lat"), data.get("lng"), data.get("address", "").strip()
+    else:
+        lat = request.form.get("lat")
+        lng = request.form.get("lng")
+        address = request.form.get("address", "").strip()
+    try:
+        lat = float(lat)
+        lng = float(lng)
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "msg": "bad coords"}), 400
+    conn = get_db()
+    if address:
+        conn.execute(
+            "UPDATE houses SET lat=?, lng=?, address=? WHERE id=?",
+            (lat, lng, normalize_address(address), id),
+        )
+    else:
+        conn.execute("UPDATE houses SET lat=?, lng=? WHERE id=?", (lat, lng, id))
+    conn.commit()
+    updated = conn.execute("SELECT * FROM houses WHERE id=?", (id,)).fetchone()
+    conn.close()
+    return jsonify({
+        "status": "ok",
+        "address": updated["address"],
+        "lat": lat,
+        "lng": lng,
+    })
+
+
+@app.route("/api/expenses")
+@api_login_required
+def api_expenses_list():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM expenses ORDER BY expense_date DESC, id DESC"
+    ).fetchall()
+    conn.close()
+    return jsonify([_row_dict(r) for r in rows])
+
+
+@app.route("/api/expenses", methods=["POST"])
+@api_login_required
+def api_expense_create():
+    data = request.get_json(force=True)
+    conn = get_db()
+    amount = _parse_price(data.get("amount")) or 0.0
+    conn.execute("""
+        INSERT INTO expenses (expense_date, category, description, amount, notes)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        data.get("expense_date", date.today().isoformat()),
+        data.get("category", "").strip(),
+        data.get("description", "").strip(),
+        amount,
+        data.get("notes", "").strip(),
+    ))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"}), 201
+
+
+@app.route("/api/expenses/<int:id>", methods=["DELETE"])
+@api_login_required
+def api_expense_delete(id):
+    conn = get_db()
+    conn.execute("DELETE FROM expenses WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/stats")
+@api_login_required
+def api_stats():
+    conn = get_db()
+    total_houses = conn.execute("SELECT COUNT(*) FROM houses").fetchone()[0]
+    total_quotes = conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0]
+    total_services = conn.execute("SELECT COUNT(*) FROM services").fetchone()[0]
+    completed_services = conn.execute(
+        "SELECT COUNT(*) FROM services WHERE completed=1"
+    ).fetchone()[0]
+    paid_services = conn.execute(
+        "SELECT COUNT(*) FROM services WHERE paid=1"
+    ).fetchone()[0]
+    total_revenue = conn.execute(
+        "SELECT SUM(amount_paid) FROM services WHERE paid=1"
+    ).fetchone()[0] or 0.0
+    total_billed = conn.execute(
+        "SELECT SUM(price) FROM services WHERE completed=1"
+    ).fetchone()[0] or 0.0
+    total_expenses = conn.execute(
+        "SELECT SUM(amount) FROM expenses"
+    ).fetchone()[0] or 0.0
+    net_profit = total_revenue - total_expenses
+    dur_row = conn.execute(
+        "SELECT AVG(duration_minutes) FROM services "
+        "WHERE completed=1 AND duration_minutes IS NOT NULL"
+    ).fetchone()
+    avg_duration = dur_row[0]
+    monthly = conn.execute("""
+        SELECT substr(service_date,1,7) AS month, SUM(amount_paid) AS revenue, COUNT(*) AS jobs
+        FROM services WHERE paid=1 AND service_date IS NOT NULL
+        GROUP BY month ORDER BY month DESC LIMIT 12
+    """).fetchall()
+    cat_expenses = conn.execute("""
+        SELECT category, SUM(amount) AS total
+        FROM expenses GROUP BY category ORDER BY total DESC
+    """).fetchall()
+    found_via = conn.execute("""
+        SELECT found_via, COUNT(*) AS cnt FROM quotes
+        WHERE found_via IS NOT NULL GROUP BY found_via ORDER BY cnt DESC
+    """).fetchall()
+    svc_types = conn.execute("""
+        SELECT type, COUNT(*) AS cnt, SUM(amount_paid) AS revenue
+        FROM services WHERE completed=1
+        GROUP BY type ORDER BY cnt DESC
+    """).fetchall()
+    conn.close()
+    return jsonify({
+        "total_houses": total_houses,
+        "total_quotes": total_quotes,
+        "total_services": total_services,
+        "completed_services": completed_services,
+        "paid_services": paid_services,
+        "total_revenue": total_revenue,
+        "total_billed": total_billed,
+        "total_expenses": total_expenses,
+        "net_profit": net_profit,
+        "avg_duration": avg_duration,
+        "monthly_data": [_row_dict(r) for r in monthly],
+        "cat_data": [_row_dict(r) for r in cat_expenses],
+        "found_via_data": [_row_dict(r) for r in found_via],
+        "svc_type_data": [_row_dict(r) for r in svc_types],
+    })
+
+
+@app.route("/api/settings")
+@api_login_required
+def api_settings_get():
+    return jsonify({
+        "outside_rate": get_setting("outside_rate"),
+        "inside_rate": get_setting("inside_rate"),
+        "both_rate": get_setting("both_rate"),
+        "email_template": get_setting("email_template"),
+        "text_template": get_setting("text_template"),
+    })
+
+
+@app.route("/api/settings", methods=["PUT"])
+@api_login_required
+def api_settings_put():
+    data = request.get_json(force=True)
+    keys = ["outside_rate", "inside_rate", "both_rate", "email_template", "text_template"]
+    conn = get_db()
+    for key in keys:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (key, data.get(key, "")),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/services", methods=["POST"])
+@api_login_required
+def api_service_create():
+    data = request.get_json(force=True)
+    service_time = _parse_service_time(data)
+    price = _parse_price(data.get("price"))
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO services (quote_id, service_date, service_time, type, price, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        int(data["quote_id"]), data.get("service_date", ""),
+        service_time, data.get("type", ""), price, data.get("notes", ""),
+    ))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"}), 201
+
+
+@app.route("/api/services/<int:id>")
+@api_login_required
+def api_service_get(id):
+    conn = get_db()
+    s = conn.execute("""
+        SELECT s.*, q.customer, q.phone, q.outside_price, q.inside_price, q.both_price,
+               h.address, s.quote_id
+        FROM services s
+        JOIN quotes q ON q.id = s.quote_id
+        JOIN houses h ON h.id = q.house_id
+        WHERE s.id=?
+    """, (id,)).fetchone()
+    conn.close()
+    if s is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(_row_dict(s))
+
+
+@app.route("/api/services/<int:id>", methods=["PUT"])
+@api_login_required
+def api_service_update(id):
+    data = request.get_json(force=True)
+    service_time = _parse_service_time(data)
+    price = _parse_price(data.get("price"))
+    amount_paid = _parse_price(data.get("amount_paid"))
+    duration_minutes = data.get("duration_minutes")
+    try:
+        duration_minutes = int(duration_minutes) if duration_minutes else None
+    except (TypeError, ValueError):
+        duration_minutes = None
+    completed = 1 if data.get("completed") else 0
+    paid = 1 if data.get("paid") else 0
+    conn = get_db()
+    conn.execute("""
+        UPDATE services
+        SET service_date=?, service_time=?, type=?, price=?, notes=?,
+            completed=?, paid=?, amount_paid=?, duration_minutes=?
+        WHERE id=?
+    """, (
+        data.get("service_date", ""), service_time, data.get("type", ""),
+        price, data.get("notes", ""), completed, paid, amount_paid,
+        duration_minutes, id,
+    ))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/services/<int:id>", methods=["DELETE"])
+@api_login_required
+def api_service_delete(id):
+    conn = get_db()
+    conn.execute("DELETE FROM services WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/services/<int:id>/complete", methods=["POST"])
+@api_login_required
+def api_service_complete(id):
+    completed = int(request.form.get("completed", 0))
+    paid = int(request.form.get("paid", 0))
+    amount_paid = _parse_price(request.form.get("amount_paid", ""))
+    duration_minutes = request.form.get("duration_minutes", "")
+    try:
+        duration_minutes = int(duration_minutes) if duration_minutes else None
+    except ValueError:
+        duration_minutes = None
+    conn = get_db()
+    conn.execute("""
+        UPDATE services SET completed=?, paid=?, amount_paid=?, duration_minutes=? WHERE id=?
+    """, (completed, paid, amount_paid, duration_minutes, id))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
 
 
 # -----------------------------
@@ -948,154 +1047,6 @@ def text_quote(id):
         both=q["both_price"],
     )
     return redirect(f"sms:{q['phone']}?body={quote(body)}")
-
-
-# -----------------------------
-# MOVE HOUSE (AJAX)
-# -----------------------------
-@app.route("/move_house/<int:id>", methods=["POST"])
-@login_required
-def move_house(id):
-    from flask import jsonify
-    lat = request.form.get("lat")
-    lng = request.form.get("lng")
-    address = request.form.get("address", "").strip()
-    try:
-        lat = float(lat)
-        lng = float(lng)
-    except (TypeError, ValueError):
-        return jsonify({"status": "error", "msg": "bad coords"})
-    conn = get_db()
-    if address:
-        conn.execute("UPDATE houses SET lat=?, lng=?, address=? WHERE id=?",
-                     (lat, lng, normalize_address(address), id))
-    else:
-        conn.execute("UPDATE houses SET lat=?, lng=? WHERE id=?", (lat, lng, id))
-    conn.commit()
-    updated = conn.execute("SELECT * FROM houses WHERE id=?", (id,)).fetchone()
-    conn.close()
-    return jsonify({"status": "ok", "address": updated["address"], "lat": lat, "lng": lng})
-
-
-# -----------------------------
-# EXPENSES
-# -----------------------------
-@app.route("/expenses", methods=["GET", "POST"])
-@login_required
-def expenses():
-    conn = get_db()
-    if request.method == "POST":
-        action = request.form.get("action", "add")
-        if action == "delete":
-            exp_id = request.form.get("id")
-            if exp_id:
-                conn.execute("DELETE FROM expenses WHERE id=?", (exp_id,))
-                conn.commit()
-        else:
-            expense_date = request.form.get("expense_date", date.today().isoformat())
-            category     = request.form.get("category", "").strip()
-            description  = request.form.get("description", "").strip()
-            amount       = request.form.get("amount", "")
-            notes        = request.form.get("notes", "").strip()
-            try:
-                amount = float(amount) if amount else 0.0
-            except ValueError:
-                amount = 0.0
-            conn.execute("""
-                INSERT INTO expenses (expense_date, category, description, amount, notes)
-                VALUES (?, ?, ?, ?, ?)
-            """, (expense_date, category, description, amount, notes))
-            conn.commit()
-        conn.close()
-        return redirect("/expenses")
-
-    rows = conn.execute(
-        "SELECT * FROM expenses ORDER BY expense_date DESC, id DESC"
-    ).fetchall()
-    expenses_list = [dict(r) for r in rows]
-    conn.close()
-    return render_template("expenses.html", expenses=expenses_list, today=date.today().isoformat())
-
-
-# -----------------------------
-# STATS
-# -----------------------------
-@app.route("/stats")
-@login_required
-def stats():
-    conn = get_db()
-
-    total_houses = conn.execute("SELECT COUNT(*) FROM houses").fetchone()[0]
-    total_quotes = conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0]
-    total_services = conn.execute("SELECT COUNT(*) FROM services").fetchone()[0]
-    completed_services = conn.execute("SELECT COUNT(*) FROM services WHERE completed=1").fetchone()[0]
-    paid_services = conn.execute("SELECT COUNT(*) FROM services WHERE paid=1").fetchone()[0]
-
-    revenue_row = conn.execute("SELECT SUM(amount_paid) FROM services WHERE paid=1").fetchone()
-    total_revenue = revenue_row[0] or 0.0
-
-    price_row = conn.execute("SELECT SUM(price) FROM services WHERE completed=1").fetchone()
-    total_billed = price_row[0] or 0.0
-
-    expense_row = conn.execute("SELECT SUM(amount) FROM expenses").fetchone()
-    total_expenses = expense_row[0] or 0.0
-
-    net_profit = total_revenue - total_expenses
-
-    # Average job duration
-    dur_row = conn.execute(
-        "SELECT AVG(duration_minutes) FROM services WHERE completed=1 AND duration_minutes IS NOT NULL"
-    ).fetchone()
-    avg_duration = dur_row[0]
-
-    # Revenue by month
-    monthly = conn.execute("""
-        SELECT substr(service_date,1,7) AS month, SUM(amount_paid) AS revenue, COUNT(*) AS jobs
-        FROM services WHERE paid=1 AND service_date IS NOT NULL
-        GROUP BY month ORDER BY month DESC LIMIT 12
-    """).fetchall()
-    monthly_data = [dict(r) for r in monthly]
-
-    # Expenses by category
-    cat_expenses = conn.execute("""
-        SELECT category, SUM(amount) AS total
-        FROM expenses GROUP BY category ORDER BY total DESC
-    """).fetchall()
-    cat_data = [dict(r) for r in cat_expenses]
-
-    # Found-via breakdown
-    found_via = conn.execute("""
-        SELECT found_via, COUNT(*) AS cnt FROM quotes
-        WHERE found_via IS NOT NULL GROUP BY found_via ORDER BY cnt DESC
-    """).fetchall()
-    found_via_data = [dict(r) for r in found_via]
-
-    # Service type breakdown
-    svc_types = conn.execute("""
-        SELECT type, COUNT(*) AS cnt, SUM(amount_paid) AS revenue
-        FROM services WHERE completed=1
-        GROUP BY type ORDER BY cnt DESC
-    """).fetchall()
-    svc_type_data = [dict(r) for r in svc_types]
-
-    conn.close()
-
-    return render_template("stats.html",
-        total_houses=total_houses,
-        total_quotes=total_quotes,
-        total_services=total_services,
-        completed_services=completed_services,
-        paid_services=paid_services,
-        total_revenue=total_revenue,
-        total_billed=total_billed,
-        total_expenses=total_expenses,
-        net_profit=net_profit,
-        avg_duration=avg_duration,
-        monthly_data=monthly_data,
-        cat_data=cat_data,
-        found_via_data=found_via_data,
-        svc_type_data=svc_type_data,
-    )
 
 
 if __name__ == "__main__":

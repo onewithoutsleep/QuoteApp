@@ -1,0 +1,133 @@
+.quote-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.quote-address-bar {
+  background: #2d89ef;
+  color: white;
+  font-weight: bold;
+  font-size: 15px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quote-address-bar a {
+  color: white;
+  text-decoration: none;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quote-address-bar a svg {
+  width: 14px;
+  height: 14px;
+  fill: rgba(255, 255, 255, 0.75);
+  flex-shrink: 0;
+}
+
+.quote-body { padding: 14px 16px; }
+.quote-customer { font-size: 18px; font-weight: bold; color: #222; margin-bottom: 4px; }
+.quote-contact { font-size: 13px; color: #888; margin-bottom: 10px; }
+.quote-contact a { color: #2d89ef; text-decoration: none; font-weight: 500; }
+.quote-prices { display: flex; gap: 8px; margin-bottom: 12px; }
+
+.price-pill {
+  flex: 1;
+  background: #eef5fd;
+  border: 1.5px solid #b8d8f8;
+  border-radius: 8px;
+  padding: 8px 4px;
+  text-align: center;
+}
+
+.price-pill .label {
+  font-size: 11px;
+  color: #2d89ef;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.price-pill .amount { font-size: 17px; font-weight: bold; color: #1a5fab; }
+.quote-meta { font-size: 13px; color: #666; margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.meta-tag { background: #f0f7ff; border-radius: 6px; padding: 2px 8px; font-size: 12px; color: #2d89ef; font-weight: 500; }
+.quote-notes { font-size: 13px; color: #888; border-top: 1px solid #f0f0f0; padding-top: 8px; margin-bottom: 10px; }
+.quote-actions { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #f0f0f0; padding-top: 12px; }
+.quote-actions a { flex: 1 1 calc(50% - 4px); }
+.quote-actions button { width: 100%; font-size: 14px; padding: 10px 8px; background: #2d89ef; }
+.quote-actions button.btn-green { background: #27ae60; }
+.services-section { border-top: 1px solid #f0f0f0; margin-top: 12px; padding-top: 10px; }
+.services-label { font-size: 12px; font-weight: bold; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.service-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f8f8f8; }
+.service-row:last-child { border-bottom: none; }
+.service-info { flex: 1; font-size: 14px; color: #444; }
+.svc-badge { display: inline-block; border-radius: 5px; padding: 1px 7px; font-size: 12px; font-weight: bold; margin-right: 4px; }
+.badge-type { background: #eef5fd; color: #2d89ef; }
+.badge-done { background: #eafaf1; color: #27ae60; }
+.badge-unpaid { background: #fef9e7; color: #d4a017; }
+.service-edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #eef5fd;
+  color: #2d89ef;
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
+.service-edit-btn svg { width: 17px; height: 17px; fill: currentColor; }
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.sheet-body {
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 20px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sheet-title { text-align: center; font-weight: bold; font-size: 16px; color: #333; }
+.sheet-action {
+  display: block;
+  text-align: center;
+  padding: 16px;
+  border-radius: 10px;
+  font-weight: bold;
+  font-size: 17px;
+  text-decoration: none;
+  color: white;
+}
+
+.sheet-action--call { background: #2d89ef; }
+.sheet-action--text { background: #27ae60; }
+
+.sheet-cancel-btn {
+  background: #f0f0f0;
+  color: #333;
+  border: none;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 16px;
+  cursor: pointer;
+}

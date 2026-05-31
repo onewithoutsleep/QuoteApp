@@ -58,6 +58,15 @@ body {
     padding-bottom: calc(68px + env(safe-area-inset-bottom));
 }
 
+#page-root.page-content {
+    min-height: 100vh;
+}
+
+.empty-msg {
+    text-align: center;
+    color: #888;
+}
+
 /* ── Layout ── */
 .container {
     max-width: 900px;
