@@ -3,7 +3,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import redis
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import quote
 import os
 import requests
@@ -34,6 +34,9 @@ else:
         app=app,
         storage_uri="memory://"
     )
+
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+
 
 AUTH_DB_PATH = "data/auth.db"
 
@@ -410,6 +413,8 @@ def login():
         ).fetchone()
         conn.close()
         if user and check_password_hash(user["password"], password):
+            remember = request.form.get("remember_me") == "1"
+            session.permanent = remember
             session["username"] = username
             return redirect("/")
         error = "Invalid username or password."
