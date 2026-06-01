@@ -92,8 +92,8 @@ function buildQuoteCard(q, navigate) {
       ${q.notes ? `<div class="quote-notes">${escapeHtml(q.notes)}</div>` : ''}
       <div class="quote-actions">
         <button type="button" data-action="edit">Edit</button>
-        <button type="button" class="btn-green" data-action="book">Book Service</button>
-        <button type="button" class="btn-green" data-action="map">Map</button>
+        <button type="button" data-action="book">Book Service</button>
+        <button type="button" data-action="map">Map</button>
         <button type="button" data-action="email">Email Quote</button>
         <button type="button" data-action="text">Text Quote</button>
       </div>
