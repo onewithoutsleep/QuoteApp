@@ -85,7 +85,7 @@ async function render() {
 function notFoundPage(ctx) {
   return {
     async mount() {
-      ctx.root.innerHTML = '<div class="container"><p>Page not found.</p></div>';
+      ctx.root.innerHTML = '<div class="page"><div class="page-content container"><p class="empty-state">Page not found.</p></div></div>';
     },
     unmount() {},
   };

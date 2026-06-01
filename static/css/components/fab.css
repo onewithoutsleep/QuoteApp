@@ -1,21 +1,20 @@
 .fab {
   position: fixed;
-  bottom: calc(68px + env(safe-area-inset-bottom) + 16px);
-  right: 20px;
+  bottom: calc(var(--nav-height) + env(safe-area-inset-bottom) + var(--space-lg));
+  right: var(--space-xl);
   width: 56px;
   height: 56px;
-  border-radius: 50%;
-  background: #2d89ef;
+  border-radius: var(--radius-round);
+  background: var(--color-primary);
   border: none;
-  box-shadow: 0 4px 12px rgba(45, 137, 239, 0.4);
+  box-shadow: var(--shadow-lg);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 999;
+  z-index: var(--z-fab);
   -webkit-tap-highlight-color: transparent;
   padding: 0;
-  width: 56px;
 }
 
 .fab:active {
@@ -26,5 +25,5 @@
 .fab svg {
   width: 28px;
   height: 28px;
-  fill: white;
+  fill: var(--color-surface);
 }

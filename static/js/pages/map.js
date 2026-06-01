@@ -17,7 +17,7 @@ export const mapPage = {
       const data = await api.getMapData();
       initMap(root.querySelector('#map'), data, highlight, navigate);
     } catch (err) {
-      root.innerHTML = '<div class="container"><p>Failed to load map.</p></div>';
+      root.innerHTML = '<div class="page"><div class="page-content container"><p class="empty-state">Failed to load map.</p></div></div>';
       console.error(err);
     }
   },
@@ -34,7 +34,7 @@ export const mapPage = {
 
 function initMap(el, data, highlightId, navigate) {
   const houses = data.houses || [];
-  const fallbackCenter = data.fallback_center || [51.130218, -114.205008];
+  const fallbackCenter = data.fallback_center || [50.00000, -100.00000];
 
   const map = L.map(el, { maxZoom: 20 }).setView(fallbackCenter, 18);
   mapInstance = map;

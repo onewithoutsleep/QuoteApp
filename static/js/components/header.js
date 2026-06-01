@@ -1,10 +1,9 @@
+import { PageHeader } from './page-header.js';
+
 export function renderHeader(slot, title) {
   slot.innerHTML = '';
   if (!title) return;
-  const el = document.createElement('div');
-  el.className = 'app-header';
-  el.innerHTML = `<h1>${title}</h1>`;
-  slot.appendChild(el);
+  slot.appendChild(PageHeader({ title, className: 'app-header' }));
 }
 
 export function clearHeader(slot) {

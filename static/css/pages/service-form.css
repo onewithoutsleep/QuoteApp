@@ -1,67 +1,72 @@
 .quote-ref {
   background: #fff8f2;
   border: 1.5px solid #f0a868;
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 4px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) 14px;
+  margin-bottom: var(--space-xs);
 }
 
 .quote-ref-label {
   font-size: 11px;
-  font-weight: bold;
+  font-weight: var(--font-weight-bold);
   color: #b86a1a;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
 }
 
-.quote-ref-prices { display: flex; gap: 8px; }
+.quote-ref-prices {
+  display: flex;
+  gap: var(--space-sm);
+}
 
 .qrp {
   flex: 1;
-  background: white;
+  background: var(--color-surface);
   border-radius: 7px;
-  padding: 7px 4px;
+  padding: 7px var(--space-xs);
   text-align: center;
   border: 1px solid #f0a868;
   cursor: pointer;
 }
 
-.qrp:active { background: #ffecd6; }
-.qrp .lbl { font-size: 11px; color: #b86a1a; font-weight: bold; text-transform: uppercase; }
-.qrp .val { font-size: 16px; font-weight: bold; color: #222; }
-
-.customer-ref { font-size: 14px; color: #888; margin-bottom: 16px; }
-
-.address-link {
-  display: block;
-  padding: 12px;
-  background: #eef5fd;
-  border-radius: 8px;
-  font-size: 16px;
-  color: #2d89ef;
-  margin-bottom: 4px;
-  text-decoration: none;
-  font-weight: 500;
+.qrp:active {
+  background: #ffecd6;
 }
 
-.time-row { display: flex; gap: 8px; }
-.time-row select {
-  flex: 1;
-  padding: 14px 12px;
-  border-radius: 8px;
-  border: 1px solid #ccc;
-  font-size: 16px;
-  background: #fff;
+.qrp .lbl {
+  font-size: 11px;
+  color: #b86a1a;
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+}
+
+.qrp .val {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: #222222;
+}
+
+.customer-ref {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-lg);
 }
 
 .completion-section {
   background: #f8fffe;
-  border: 2px solid #27ae60;
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-top: 8px;
+  border: 2px solid var(--color-success);
+  border-radius: var(--radius-xl);
+  padding: 14px var(--space-lg);
+  margin-top: var(--space-sm);
 }
 
-.completion-section h3 { margin: 0 0 12px; font-size: 16px; color: #27ae60; }
-.payment-fields { margin-top: 4px; }
+.completion-section h3 {
+  margin: 0 0 var(--space-md);
+  font-size: var(--font-size-lg);
+  color: var(--color-success);
+}
+
+.payment-fields {
+  margin-top: var(--space-xs);
+}

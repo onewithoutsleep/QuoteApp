@@ -17,43 +17,71 @@ body.map-active #map {
   top: 0;
   left: 0;
   right: 0;
-  bottom: calc(68px + env(safe-area-inset-bottom));
+  bottom: calc(var(--nav-height) + env(safe-area-inset-bottom));
   z-index: 1;
 }
 
 .leaflet-popup-content {
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   min-width: 220px;
 }
 
 .leaflet-popup-content button {
-  font-size: 15px;
+  font-size: var(--font-size-md);
   padding: 9px 14px;
-  margin: 4px 4px 0 0;
-  border-radius: 8px;
+  margin: var(--space-xs) var(--space-xs) 0 0;
+  border-radius: var(--radius-md);
   border: none;
   cursor: pointer;
-  font-weight: bold;
-  color: white;
-  background: #2d89ef;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-surface);
+  background: var(--color-primary);
   width: auto;
 }
 
-.leaflet-popup-content button.btn-green { background: #27ae60; }
-.leaflet-popup-content button.btn-red { background: #c0392b; }
-.leaflet-popup-content button.btn-orange { background: #e67e22; }
+.leaflet-popup-content button.btn-green {
+  background: var(--color-success);
+}
 
-.leaflet-popup-content-wrapper { border-radius: 12px; }
+.leaflet-popup-content button.btn-red {
+  background: var(--color-danger);
+}
 
-.popup-meta { font-size: 14px; color: #888; margin-bottom: 8px; }
-.popup-booking { font-size: 14px; color: #27ae60; margin-bottom: 8px; }
+.leaflet-popup-content button.btn-orange {
+  background: var(--color-orange);
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: var(--radius-xl);
+}
+
+.popup-meta {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-sm);
+}
+
+.popup-booking {
+  font-size: var(--font-size-base);
+  color: var(--color-success);
+  margin-bottom: var(--space-sm);
+}
 
 .location-dot {
   animation: locationPulse 2s ease-in-out infinite;
 }
 
 @keyframes locationPulse {
-  0% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.75; transform: scale(1.3); }
-  100% { opacity: 1; transform: scale(1); }
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.3);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

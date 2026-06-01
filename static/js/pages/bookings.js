@@ -1,5 +1,11 @@
 import * as api from '../api.js';
 import { renderNav } from '../components/nav.js';
+import { createPage, mountPage } from '../components/page.js';
+import { PageHeader } from '../components/page-header.js';
+import { EmptyState } from '../components/empty-state.js';
+import { LoadingState } from '../components/loading-state.js';
+import { escapeHtml, capitalize } from '../components/dom.js';
+import { BottomSheet } from '../components/sheet.js';
 import { fmtPrice, time12, fmtPhone, fmtDate, phoneDigits, handlePhone } from '../utils.js';
 
 let servicesRaw = [];
@@ -15,14 +21,17 @@ export const bookingsPage = {
     todayStr = today.toISOString().slice(0, 10);
     activeDate = todayStr;
 
-    root.innerHTML = `
-      <div class="container bookings-page">
-        <div class="cal-strip-wrap">
-          <div class="cal-strip" id="calStrip"></div>
-        </div>
-        <h2 style="margin-top:0;">Bookings</h2>
-        <div id="bookingsList">Loading…</div>
-      </div>`;
+    const { page, content } = createPage({ className: 'bookings-page' });
+    const calWrap = document.createElement('div');
+    calWrap.className = 'cal-strip-wrap';
+    calWrap.innerHTML = '<div class="cal-strip" id="calStrip"></div>';
+    const header = PageHeader({ title: 'Bookings', tag: 'h2' });
+    header.classList.add('no-margin-top');
+    const listEl = document.createElement('div');
+    listEl.id = 'bookingsList';
+    listEl.appendChild(LoadingState());
+    content.append(calWrap, header, listEl);
+    mountPage(root, page);
 
     try {
       servicesRaw = await api.getBookings() || [];
@@ -30,7 +39,8 @@ export const bookingsPage = {
       buildStrip(root);
       renderBookings(root, navigate);
     } catch (err) {
-      root.querySelector('#bookingsList').innerHTML = '<p class="empty-msg">Failed to load bookings.</p>';
+      listEl.innerHTML = '';
+      listEl.appendChild(EmptyState('Failed to load bookings.'));
       console.error(err);
     }
   },
@@ -98,8 +108,8 @@ function renderBookings(root, navigate) {
       if (activeDate) list.innerHTML = '<div class="no-bookings-day">No bookings on this day.</div>';
       return;
     }
-    const group = document.createElement('div');
-    group.className = 'booking-date-group';
+    const group = document.createElement('section');
+    group.className = 'section booking-date-group';
     group.innerHTML = `<div class="booking-date-header">${ds === 'no-date' ? 'No Date' : fmtDate(ds)}</div>`;
     items.forEach((s) => group.appendChild(buildBookingCard(s, navigate)));
     list.appendChild(group);
@@ -126,7 +136,7 @@ function buildBookingCard(s, navigate) {
         </div>
         <a class="booking-address" href="${mapsUrl}" target="_blank" rel="noopener">${escapeHtml(s.address || '')}</a>
         ${fPhone ? `<a class="booking-phone" href="tel:${digits}">${fPhone}</a>` : ''}
-        <div class="booking-meta" style="margin-top:4px;">
+        <div class="booking-meta mt-xs">
           ${s.type ? `<span class="bk-badge bk-type">${capitalize(s.type)}</span>` : ''}
           ${s.windows ? `<span class="bk-badge bk-muted">${s.windows} windows</span>` : ''}
           ${s.completed && !s.paid ? '<span class="bk-badge bk-unpaid">Unpaid</span>' : ''}
@@ -156,12 +166,10 @@ function buildBookingCard(s, navigate) {
 }
 
 function openCompleteSheet(svc) {
-  const sheet = document.createElement('div');
-  sheet.className = 'sheet-overlay';
   const isComplete = !!svc.completed;
   const isPaid = !!svc.paid;
-  sheet.innerHTML = `
-    <div class="sheet-body">
+  const sheet = BottomSheet({
+    body: `
       <div class="sheet-title">${escapeHtml(svc.customer || '')}</div>
       <div class="sheet-address">${escapeHtml(svc.address || '')}</div>
       <div class="toggle-row">
@@ -187,8 +195,8 @@ function openCompleteSheet(svc) {
         </div>
       </div>
       <button type="button" class="sheet-save-btn">Save</button>
-      <button type="button" class="sheet-cancel-btn">Cancel</button>
-    </div>`;
+      <button type="button" class="sheet-cancel-btn">Cancel</button>`,
+  });
 
   const completedEl = sheet.querySelector('#sCompleted');
   const paySec = sheet.querySelector('#sPaySection');
@@ -201,9 +209,6 @@ function openCompleteSheet(svc) {
   paidEl?.addEventListener('change', () => {
     amtSec.style.display = paidEl.checked ? '' : 'none';
   });
-
-  sheet.querySelector('.sheet-cancel-btn')?.addEventListener('click', () => sheet.remove());
-  sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheet.remove(); });
 
   sheet.querySelector('.sheet-save-btn')?.addEventListener('click', async () => {
     const form = new FormData();
@@ -223,7 +228,7 @@ function openCompleteSheet(svc) {
       });
       rebuildByDate();
       sheet.remove();
-      const root = document.querySelector('.bookings-page')?.closest('#page-root');
+      const root = document.getElementById('page-root');
       if (root) {
         buildStrip(root);
         renderBookings(root, (h) => { location.hash = h; });
@@ -232,16 +237,4 @@ function openCompleteSheet(svc) {
       alert('Error saving. Please try again.');
     }
   });
-
-  document.body.appendChild(sheet);
-}
-
-function capitalize(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
-}
-
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }

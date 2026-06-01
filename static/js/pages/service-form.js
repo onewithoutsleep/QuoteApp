@@ -1,5 +1,10 @@
 import * as api from '../api.js';
 import { renderNav } from '../components/nav.js';
+import { createPage, mountPage } from '../components/page.js';
+import { Card } from '../components/card.js';
+import { LoadingState } from '../components/loading-state.js';
+import { optionChipGroup } from '../components/form.js';
+import { escAttr, escapeHtml, capitalize } from '../components/dom.js';
 import { todayISO, bindRadioGroup, fmtPrice, parseTime24, serviceTimeTo24 } from '../utils.js';
 
 const SERVICE_TYPES = ['outside', 'inside', 'both', 'other'];
@@ -11,7 +16,9 @@ export const serviceFormPage = {
     const quoteId = params.quoteId;
     const isEdit = !!serviceId;
 
-    root.innerHTML = '<div class="container"><div class="card"><p>Loading…</p></div></div>';
+    const { page, content } = createPage({ className: 'service-form-page' });
+    content.appendChild(Card({ body: LoadingState() }));
+    mountPage(root, page);
 
     let service = null;
     let quote = null;
@@ -41,46 +48,48 @@ export const serviceFormPage = {
     const currentType = service?.type || 'outside';
     const backHash = '#/bookings';
 
-    root.innerHTML = `
-      <div class="container service-form-page">
-        <div class="card">
-          <h2>${isEdit ? 'Edit Booking' : 'Book Service'}</h2>
-          ${isEdit ? `<a class="address-link" href="https://maps.apple.com/?q=${encodeURIComponent(data.address || '')}" target="_blank" rel="noopener">📍 ${esc(data.address)}</a>` : `<div class="address-readonly">${esc(data.address)}</div>`}
-          <div class="customer-ref">${esc(data.customer)}${data.phone ? ` · ${esc(data.phone)}` : ''}</div>
-          ${renderQuoteRef(data)}
-          <form id="service-form">
-            ${!isEdit ? `<input type="hidden" name="quote_id" value="${quote.id}">` : ''}
-            <label class="field-label">Date</label>
-            <input type="date" name="service_date" required value="${service?.service_date || todayISO()}">
-            <label class="field-label">Time</label>
-            <div class="time-row">
-              <select name="service_time_hour">${hourOptions(t.hour)}</select>
-              <select name="service_time_min">${minOptions(t.min)}</select>
-              <select name="service_time_ampm">
-                <option value="AM" ${t.ampm === 'AM' ? 'selected' : ''}>AM</option>
-                <option value="PM" ${t.ampm === 'PM' ? 'selected' : ''}>PM</option>
-              </select>
-            </div>
-            <label class="field-label">Service Type</label>
-            <div class="found-via-group" id="type-group"></div>
-            <label class="field-label">Price ($)</label>
-            <input type="number" id="priceInput" name="price" step="0.01" value="${service?.price ?? ''}">
-            <label class="field-label">Notes</label>
-            <textarea name="notes">${esc(service?.notes)}</textarea>
-            ${isEdit ? renderCompletionSection(service) : ''}
-            <button type="submit">${isEdit ? 'Save Changes' : 'Confirm Booking'}</button>
-            ${isEdit ? '<button type="button" id="delete-svc" class="btn-danger">Delete Booking</button>' : ''}
-            <button type="button" class="btn-link" id="cancel-btn">Cancel</button>
-          </form>
-        </div>
-      </div>`;
-
-    const typeGroup = root.querySelector('#type-group');
-    SERVICE_TYPES.forEach((v) => {
-      typeGroup.innerHTML += `<label class="found-via-option ${currentType === v ? 'selected' : ''}">
-        <input type="radio" name="type" value="${v}" ${currentType === v ? 'checked' : ''}> ${capitalize(v)}
-      </label>`;
+    content.innerHTML = '';
+    const formCard = Card({
+      header: `<h2>${isEdit ? 'Edit Booking' : 'Book Service'}</h2>`,
+      body: `
+        ${isEdit ? `<a class="address-link" href="https://maps.apple.com/?q=${encodeURIComponent(data.address || '')}" target="_blank" rel="noopener">📍 ${escapeHtml(data.address)}</a>` : `<div class="address-readonly">${escapeHtml(data.address)}</div>`}
+        <div class="customer-ref">${escapeHtml(data.customer)}${data.phone ? ` · ${escapeHtml(data.phone)}` : ''}</div>
+        ${renderQuoteRef(data)}
+        <form id="service-form">
+          ${!isEdit ? `<input type="hidden" name="quote_id" value="${quote.id}">` : ''}
+          <label class="field-label">Date</label>
+          <input class="input" type="date" name="service_date" required value="${service?.service_date || todayISO()}">
+          <label class="field-label">Time</label>
+          <div class="time-row">
+            <select name="service_time_hour">${hourOptions(t.hour)}</select>
+            <select name="service_time_min">${minOptions(t.min)}</select>
+            <select name="service_time_ampm">
+              <option value="AM" ${t.ampm === 'AM' ? 'selected' : ''}>AM</option>
+              <option value="PM" ${t.ampm === 'PM' ? 'selected' : ''}>PM</option>
+            </select>
+          </div>
+          <label class="field-label">Service Type</label>
+          <div id="type-group-slot"></div>
+          <label class="field-label">Price ($)</label>
+          <input class="input" type="number" id="priceInput" name="price" step="0.01" value="${service?.price ?? ''}">
+          <label class="field-label">Notes</label>
+          <textarea name="notes">${escapeHtml(service?.notes)}</textarea>
+          ${isEdit ? renderCompletionSection(service) : ''}
+          <button type="submit">${isEdit ? 'Save Changes' : 'Confirm Booking'}</button>
+          ${isEdit ? '<button type="button" id="delete-svc" class="btn-danger">Delete Booking</button>' : ''}
+          <button type="button" class="btn-link" id="cancel-btn">Cancel</button>
+        </form>`,
     });
+    content.appendChild(formCard);
+
+    const typeSlot = root.querySelector('#type-group-slot');
+    const typeGroup = optionChipGroup({
+      name: 'type',
+      options: SERVICE_TYPES.map((v) => ({ value: v, label: capitalize(v) })),
+      selected: currentType,
+    });
+    typeGroup.id = 'type-group';
+    typeSlot.replaceWith(typeGroup);
     bindRadioGroup(root);
 
     root.querySelectorAll('.qrp.tap').forEach((el) => {
@@ -169,7 +178,7 @@ function renderCompletionSection(service) {
     </div>
     <div class="payment-fields" id="paymentFields" style="${service.completed ? '' : 'display:none'}">
       <label class="field-label">Minutes</label>
-      <input type="number" name="duration_minutes" value="${service.duration_minutes || ''}">
+      <input class="input" type="number" name="duration_minutes" value="${service.duration_minutes || ''}">
       <div class="toggle-row">
         <span class="toggle-label">Paid</span>
         <label class="toggle-switch">
@@ -179,7 +188,7 @@ function renderCompletionSection(service) {
       </div>
       <div id="amountPaidField" style="${service.paid ? '' : 'display:none'}">
         <label class="field-label">Amount Paid ($)</label>
-        <input type="number" name="amount_paid" step="0.01" value="${service.amount_paid || ''}">
+        <input class="input" type="number" name="amount_paid" step="0.01" value="${service.amount_paid || ''}">
       </div>
     </div>
   </div>`;
@@ -198,12 +207,4 @@ function minOptions(selected) {
   return ['00', '15', '30', '45'].map((m) =>
     `<option value="${m}" ${m === selected ? 'selected' : ''}>${m}</option>`
   ).join('');
-}
-
-function esc(s) {
-  return s != null ? String(s).replace(/</g, '&lt;') : '';
-}
-
-function capitalize(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 }

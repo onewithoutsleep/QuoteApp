@@ -1,5 +1,10 @@
 import * as api from '../api.js';
 import { renderNav } from '../components/nav.js';
+import { createPage, mountPage } from '../components/page.js';
+import { Card } from '../components/card.js';
+import { EmptyState } from '../components/empty-state.js';
+import { LoadingState } from '../components/loading-state.js';
+import { escapeHtml } from '../components/dom.js';
 import { fmtPrice, todayISO, bindRadioGroup } from '../utils.js';
 
 const CATEGORIES = ['Supplies', 'Fuel', 'Equipment', 'Marketing', 'Labor', 'Other'];
@@ -7,28 +12,34 @@ const CATEGORIES = ['Supplies', 'Fuel', 'Equipment', 'Marketing', 'Labor', 'Othe
 export const expensesPage = {
   async mount({ root, slots }) {
     renderNav(slots.nav, 'expenses');
-    root.innerHTML = `
-      <div class="container expenses-page">
-        <h2>Expenses</h2>
-        <div id="expenses-total"></div>
-        <div class="add-card">
-          <h3>Add Expense</h3>
-          <form id="expense-form">
-            <label class="field-label">Date</label>
-            <input type="date" name="expense_date" value="${todayISO()}" required>
-            <label class="field-label">Category</label>
-            <div class="cat-group" id="cat-group"></div>
-            <label class="field-label">Description</label>
-            <input type="text" name="description" placeholder="e.g. Squeegees, washer fluid">
-            <label class="field-label">Amount ($)</label>
-            <input type="number" name="amount" step="0.01" placeholder="e.g. 45.00">
-            <label class="field-label">Notes (optional)</label>
-            <textarea name="notes" placeholder="Any extra details…" style="min-height:60px;"></textarea>
-            <button type="submit">Add Expense</button>
-          </form>
-        </div>
-        <div id="expenses-list">Loading…</div>
-      </div>`;
+
+    const { page, content } = createPage({ title: 'Expenses', className: 'expenses-page', tag: 'h2' });
+    const totalEl = document.createElement('div');
+    totalEl.id = 'expenses-total';
+    const addCard = Card({
+      className: 'add-card',
+      header: '<h3>Add Expense</h3>',
+      body: `
+        <form id="expense-form">
+          <label class="field-label">Date</label>
+          <input type="date" class="input" name="expense_date" value="${todayISO()}" required>
+          <label class="field-label">Category</label>
+          <div class="cat-group" id="cat-group"></div>
+          <label class="field-label">Description</label>
+          <input type="text" class="input" name="description" placeholder="e.g. Squeegees, washer fluid">
+          <label class="field-label">Amount ($)</label>
+          <input type="number" class="input" name="amount" step="0.01" placeholder="e.g. 45.00">
+          <label class="field-label">Notes (optional)</label>
+          <textarea name="notes" placeholder="Any extra details…" style="min-height:60px;"></textarea>
+          <button type="submit">Add Expense</button>
+        </form>`,
+    });
+    const listEl = document.createElement('div');
+    listEl.id = 'expenses-list';
+    listEl.appendChild(LoadingState());
+
+    content.append(totalEl, addCard, listEl);
+    mountPage(root, page);
 
     const catGroup = root.querySelector('#cat-group');
     CATEGORIES.forEach((cat) => {
@@ -77,12 +88,12 @@ async function loadExpenses(root) {
       ? `<div class="total-bar"><span class="label">Total Expenses</span><span class="amount">$${fmtPrice(total)}</span></div>`
       : '';
 
+    list.innerHTML = '';
     if (!expenses.length) {
-      list.innerHTML = '<p class="empty-msg">No expenses yet.</p>';
+      list.appendChild(EmptyState('No expenses yet.'));
       return;
     }
 
-    list.innerHTML = '';
     expenses.forEach((exp) => {
       const card = document.createElement('div');
       card.className = 'expense-card';
@@ -114,13 +125,8 @@ async function loadExpenses(root) {
       list.appendChild(card);
     });
   } catch (err) {
-    list.innerHTML = '<p class="empty-msg">Failed to load expenses.</p>';
+    list.innerHTML = '';
+    list.appendChild(EmptyState('Failed to load expenses.'));
     console.error(err);
   }
-}
-
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }

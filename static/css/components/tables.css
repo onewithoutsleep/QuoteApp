@@ -1,0 +1,29 @@
+.table,
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.table th,
+.table td,
+table th,
+table td {
+  padding: 10px var(--space-sm);
+  text-align: left;
+}
+
+.table input,
+table input,
+.price-table input {
+  padding: 10px var(--space-sm);
+  font-size: var(--font-size-md);
+}
+
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.price-table {
+  width: 100%;
+}

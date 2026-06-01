@@ -1,6 +1,11 @@
 import * as api from '../api.js';
 import { getState } from '../state.js';
 import { renderNav } from '../components/nav.js';
+import { createPage, mountPage } from '../components/page.js';
+import { Card } from '../components/card.js';
+import { LoadingState } from '../components/loading-state.js';
+import { optionChipGroup } from '../components/form.js';
+import { escAttr, escapeHtml, capitalize } from '../components/dom.js';
 import { todayISO, bindRadioGroup, fmtPrice } from '../utils.js';
 
 const FOUND_VIA = ['knock', 'referral', 'facebook', 'other'];
@@ -13,7 +18,9 @@ export const quoteFormPage = {
     const query = new URLSearchParams(location.hash.split('?')[1] || '');
     const houseId = query.get('house_id') || '';
 
-    root.innerHTML = '<div class="container"><div class="card"><p>Loading…</p></div></div>';
+    const { page, content } = createPage({ className: 'quote-form-page' });
+    content.appendChild(Card({ body: LoadingState() }));
+    mountPage(root, page);
 
     let quote = null;
     let house = null;
@@ -36,54 +43,56 @@ export const quoteFormPage = {
     }
 
     const foundVia = quote?.found_via || (houseId ? 'knock' : '');
-    root.innerHTML = `
-      <div class="container quote-form-page">
-        <div class="card">
-          <h2>${isEdit ? 'Edit Quote' : 'New Quote'}</h2>
-          <form id="quote-form">
-            <input type="hidden" name="house_id" value="${house?.id || quote?.house_id || houseId || ''}">
-            ${renderAddressField(house, quote, isEdit)}
-            <label class="field-label">Customer Name</label>
-            <input name="customer" required value="${esc(quote?.customer)}">
-            <label class="field-label">Phone Number</label>
-            <input name="phone" value="${esc(quote?.phone)}">
-            <label class="field-label">Email</label>
-            <input name="email" type="email" value="${esc(quote?.email)}">
-            <label class="field-label">Number of Windows</label>
-            <input id="windows" name="windows" type="number" required value="${quote?.windows ?? ''}">
-            <label class="field-label">Quote Date</label>
-            <input type="date" name="quote_date" value="${quote?.quote_date || todayISO()}">
-            <label class="field-label">Notes</label>
-            <textarea name="notes">${esc(quote?.notes)}</textarea>
-            <label class="field-label">How did you find them?</label>
-            <div class="found-via-group" id="found-via"></div>
-            <button type="button" id="calc-btn">${isEdit ? 'Recalculate' : 'Calculate Quote'}</button>
-            <div id="quoteResults" style="${quote ? '' : 'display:none'}">
-              <hr><h3>Prices</h3>
-              <table class="price-table">
-                <tr><th></th><th>${isEdit ? 'Current' : 'Base'}</th><th>Your Price</th></tr>
-                <tr><td>Outside</td><td>$<span id="outsideBase">${quote ? fmtPrice(quote.outside_price) : '—'}</span></td>
-                  <td><input id="outside" name="outside" type="number" step="0.01" required value="${quote?.outside_price ?? ''}"></td></tr>
-                <tr><td>Inside</td><td>$<span id="insideBase">${quote ? fmtPrice(quote.inside_price) : '—'}</span></td>
-                  <td><input id="inside" name="inside" type="number" step="0.01" required value="${quote?.inside_price ?? ''}"></td></tr>
-                <tr><td>Both</td><td>$<span id="bothBase">${quote ? fmtPrice(quote.both_price) : '—'}</span></td>
-                  <td><input id="both" name="both" type="number" step="0.01" required value="${quote?.both_price ?? ''}"></td></tr>
-              </table>
-              <br>
-              <button type="submit">Save Quote</button>
-              ${isEdit ? '<button type="button" id="delete-btn" class="btn-danger">Delete Quote</button>' : ''}
-              <button type="button" class="btn-link" id="cancel-btn">Cancel</button>
-            </div>
-          </form>
-        </div>
-      </div>`;
-
-    const fvGroup = root.querySelector('#found-via');
-    FOUND_VIA.forEach((v) => {
-      fvGroup.innerHTML += `<label class="found-via-option ${foundVia === v ? 'selected' : ''}">
-        <input type="radio" name="found_via" value="${v}" ${foundVia === v ? 'checked' : ''}> ${capitalize(v)}
-      </label>`;
+    content.innerHTML = '';
+    const formCard = Card({
+      header: `<h2>${isEdit ? 'Edit Quote' : 'New Quote'}</h2>`,
+      body: `
+        <form id="quote-form">
+          <input type="hidden" name="house_id" value="${escAttr(house?.id || quote?.house_id || houseId || '')}">
+          ${renderAddressField(house, quote)}
+          <label class="field-label">Customer Name</label>
+          <input class="input" name="customer" required value="${escAttr(quote?.customer)}">
+          <label class="field-label">Phone Number</label>
+          <input class="input" name="phone" value="${escAttr(quote?.phone)}">
+          <label class="field-label">Email</label>
+          <input class="input" name="email" type="email" value="${escAttr(quote?.email)}">
+          <label class="field-label">Number of Windows</label>
+          <input class="input" id="windows" name="windows" type="number" required value="${quote?.windows ?? ''}">
+          <label class="field-label">Quote Date</label>
+          <input class="input" type="date" name="quote_date" value="${quote?.quote_date || todayISO()}">
+          <label class="field-label">Notes</label>
+          <textarea name="notes">${escapeHtml(quote?.notes)}</textarea>
+          <label class="field-label">How did you find them?</label>
+          <div id="found-via-slot"></div>
+          <button type="button" id="calc-btn">${isEdit ? 'Recalculate' : 'Calculate Quote'}</button>
+          <div id="quoteResults" style="${quote ? '' : 'display:none'}">
+            <hr><h3>Prices</h3>
+            <table class="price-table table">
+              <tr><th></th><th>${isEdit ? 'Current' : 'Base'}</th><th>Your Price</th></tr>
+              <tr><td>Outside</td><td>$<span id="outsideBase">${quote ? fmtPrice(quote.outside_price) : '—'}</span></td>
+                <td><input class="input" id="outside" name="outside" type="number" step="0.01" required value="${quote?.outside_price ?? ''}"></td></tr>
+              <tr><td>Inside</td><td>$<span id="insideBase">${quote ? fmtPrice(quote.inside_price) : '—'}</span></td>
+                <td><input class="input" id="inside" name="inside" type="number" step="0.01" required value="${quote?.inside_price ?? ''}"></td></tr>
+              <tr><td>Both</td><td>$<span id="bothBase">${quote ? fmtPrice(quote.both_price) : '—'}</span></td>
+                <td><input class="input" id="both" name="both" type="number" step="0.01" required value="${quote?.both_price ?? ''}"></td></tr>
+            </table>
+            <br>
+            <button type="submit">Save Quote</button>
+            ${isEdit ? '<button type="button" id="delete-btn" class="btn-danger">Delete Quote</button>' : ''}
+            <button type="button" class="btn-link" id="cancel-btn">Cancel</button>
+          </div>
+        </form>`,
     });
+    content.appendChild(formCard);
+
+    const fvSlot = root.querySelector('#found-via-slot');
+    const fvGroup = optionChipGroup({
+      name: 'found_via',
+      options: FOUND_VIA.map((v) => ({ value: v, label: capitalize(v) })),
+      selected: foundVia,
+    });
+    fvGroup.id = 'found-via';
+    fvSlot.replaceWith(fvGroup);
     bindRadioGroup(root);
 
     const outsideRate = rates.outside_rate;
@@ -151,20 +160,12 @@ export const quoteFormPage = {
   unmount() {},
 };
 
-function renderAddressField(house, quote, isEdit) {
+function renderAddressField(house, quote) {
   const addr = house?.address || quote?.address;
   if (addr) {
     return `<label class="field-label">Address</label>
-      <div class="address-readonly">${esc(addr)}</div>`;
+      <div class="address-readonly">${escapeHtml(addr)}</div>`;
   }
   return `<label class="field-label">Address</label>
-    <input name="address" placeholder="123 Main St" required>`;
-}
-
-function esc(s) {
-  return s != null ? String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;') : '';
-}
-
-function capitalize(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+    <input class="input" name="address" placeholder="123 Main St" required>`;
 }

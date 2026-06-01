@@ -67,11 +67,16 @@ export function handlePhone(e, rawPhone, digits) {
 }
 
 export function bindRadioGroup(container) {
-  container.querySelectorAll('.found-via-option input, .cat-opt input').forEach((radio) => {
+  container.querySelectorAll('.found-via-option input, .cat-opt input, .option-chip input').forEach((radio) => {
     radio.addEventListener('change', () => {
-      const labelClass = radio.closest('.cat-opt') ? '.cat-opt' : '.found-via-option';
+      const label = radio.closest('label');
+      const labelClass = label?.classList.contains('cat-opt')
+        ? '.cat-opt'
+        : label?.classList.contains('option-chip')
+          ? '.option-chip'
+          : '.found-via-option';
       container.querySelectorAll(labelClass).forEach((l) => l.classList.remove('selected'));
-      radio.closest('label')?.classList.add('selected');
+      label?.classList.add('selected');
     });
   });
 }

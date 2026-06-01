@@ -1,17 +1,28 @@
 import * as api from '../api.js';
 import { renderNav } from '../components/nav.js';
+import { createPage, mountPage } from '../components/page.js';
+import { EmptyState } from '../components/empty-state.js';
+import { LoadingState } from '../components/loading-state.js';
+import { escapeHtml, capitalize } from '../components/dom.js';
 import { fmtPrice } from '../utils.js';
 
 export const statsPage = {
   async mount({ root, slots }) {
     renderNav(slots.nav, 'stats');
-    root.innerHTML = '<div class="container stats-page"><h2>Stats</h2><div id="stats-content">Loading…</div></div>';
+
+    const { page, content } = createPage({ title: 'Stats', className: 'stats-page', tag: 'h2' });
+    const statsContent = document.createElement('div');
+    statsContent.id = 'stats-content';
+    statsContent.appendChild(LoadingState());
+    content.appendChild(statsContent);
+    mountPage(root, page);
 
     try {
       const d = await api.getStats();
-      root.querySelector('#stats-content').innerHTML = renderStats(d);
+      statsContent.innerHTML = renderStats(d);
     } catch (err) {
-      root.querySelector('#stats-content').innerHTML = '<p class="empty-msg">Failed to load stats.</p>';
+      statsContent.innerHTML = '';
+      statsContent.appendChild(EmptyState('Failed to load stats.'));
       console.error(err);
     }
   },
@@ -32,29 +43,29 @@ function renderStats(d) {
       ${d.avg_duration ? `<div class="stat-box purple"><div class="val">${Math.round(d.avg_duration)} min</div><div class="lbl">Avg Job Duration</div></div>` : ''}
     </div>
     <div class="section-title">Pipeline Funnel</div>
-    ${funnelRow('Knocked', d.total_houses, 100, '#2d89ef')}
-    ${funnelRow('Quoted', d.total_quotes, pct(d.total_quotes), '#7c3aed')}
-    ${funnelRow('Booked', d.total_services, pct(d.total_services), '#27ae60')}
-    ${funnelRow('Completed', d.completed_services, pct(d.completed_services), '#27ae60', 0.6)}
-    ${funnelRow('Paid', d.paid_services, pct(d.paid_services), '#e67e22')}`;
+    ${funnelRow('Knocked', d.total_houses, 100, 'var(--color-primary)')}
+    ${funnelRow('Quoted', d.total_quotes, pct(d.total_quotes), 'var(--color-purple)')}
+    ${funnelRow('Booked', d.total_services, pct(d.total_services), 'var(--color-success)')}
+    ${funnelRow('Completed', d.completed_services, pct(d.completed_services), 'var(--color-success)', 0.6)}
+    ${funnelRow('Paid', d.paid_services, pct(d.paid_services), 'var(--color-orange)')}`;
 
   if (d.found_via_data?.length) {
-    html += `<div class="section-title">How Customers Were Found</div>${barChart(d.found_via_data, 'cnt', 'found_via', '#2d89ef', true)}`;
+    html += `<div class="section-title">How Customers Were Found</div>${barChart(d.found_via_data, 'cnt', 'found_via', 'var(--color-primary)', true)}`;
   }
   if (d.svc_type_data?.length) {
-    html += `<div class="section-title">Service Types (Completed)</div>${barChart(d.svc_type_data, 'cnt', 'type', '#27ae60', true, 'revenue')}`;
+    html += `<div class="section-title">Service Types (Completed)</div>${barChart(d.svc_type_data, 'cnt', 'type', 'var(--color-success)', true, 'revenue')}`;
   }
   if (d.monthly_data?.length) {
     const revMax = Math.max(...d.monthly_data.map((r) => r.revenue || 0), 1);
     html += `<div class="section-title">Monthly Revenue</div><div class="bar-chart">`;
     [...d.monthly_data].reverse().forEach((row) => {
       const w = Math.round(((row.revenue || 0) / revMax) * 100);
-      html += barRow(row.month, w, `$${fmtPrice(row.revenue)}`, '#e67e22');
+      html += barRow(row.month, w, `$${fmtPrice(row.revenue)}`, 'var(--color-orange)');
     });
     html += '</div>';
   }
   if (d.cat_data?.length) {
-    html += `<div class="section-title">Expenses by Category</div>${barChart(d.cat_data, 'total', 'category', '#c0392b', false)}`;
+    html += `<div class="section-title">Expenses by Category</div>${barChart(d.cat_data, 'total', 'category', 'var(--color-danger)', false)}`;
   }
 
   return html;
@@ -62,7 +73,7 @@ function renderStats(d) {
 
 function funnelRow(label, count, width, color, opacity) {
   const style = opacity ? `background:${color};opacity:${opacity};` : `background:${color};`;
-  const countColor = opacity ? 'color:#999;' : `color:${color};`;
+  const countColor = opacity ? 'color:var(--color-text-muted);' : `color:${color};`;
   return `<div class="funnel-row">
     <div class="funnel-label">${label}</div>
     <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${width}%;${style}"></div></div>
@@ -88,14 +99,4 @@ function barRow(label, width, val, color) {
     <div class="bar-wrap"><div class="bar-fill" style="width:${width}%;background:${color};"></div></div>
     <div class="bar-val">${val}</div>
   </div>`;
-}
-
-function capitalize(s) {
-  return s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : '';
-}
-
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }

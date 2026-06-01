@@ -1,6 +1,10 @@
 import * as api from '../api.js';
 import { renderNav } from '../components/nav.js';
 import { renderFab } from '../components/fab.js';
+import { createPage, mountPage } from '../components/page.js';
+import { EmptyState } from '../components/empty-state.js';
+import { LoadingState } from '../components/loading-state.js';
+import { escapeHtml, capitalize } from '../components/dom.js';
 import { fmtPrice, time12, fmtPhone, phoneDigits, handlePhone } from '../utils.js';
 
 export const quotesPage = {
@@ -8,23 +12,24 @@ export const quotesPage = {
     renderNav(slots.nav, 'quotes');
     renderFab(slots.fab, { hash: '#/quotes/new', label: 'Add quote' });
 
-    root.innerHTML = `
-      <div class="container quotes-page">
-        <h2>Saved Quotes</h2>
-        <div id="quotes-list">Loading…</div>
-      </div>`;
+    const { page, content } = createPage({ title: 'Saved Quotes', className: 'quotes-page', tag: 'h2' });
+    const listEl = document.createElement('div');
+    listEl.id = 'quotes-list';
+    listEl.appendChild(LoadingState());
+    content.appendChild(listEl);
+    mountPage(root, page);
 
-    const listEl = root.querySelector('#quotes-list');
     try {
       const quotes = await api.getQuotes();
+      listEl.innerHTML = '';
       if (!quotes?.length) {
-        listEl.innerHTML = '<p class="empty-msg">No quotes yet. Add one to get started.</p>';
+        listEl.appendChild(EmptyState('No quotes yet. Add one to get started.'));
         return;
       }
-      listEl.innerHTML = '';
       quotes.forEach((q) => listEl.appendChild(buildQuoteCard(q, navigate)));
     } catch (err) {
-      listEl.innerHTML = '<p class="empty-msg">Failed to load quotes.</p>';
+      listEl.innerHTML = '';
+      listEl.appendChild(EmptyState('Failed to load quotes.'));
       console.error(err);
     }
   },
@@ -49,8 +54,8 @@ function buildQuoteCard(q, navigate) {
           ${s.completed && !s.paid ? '<span class="svc-badge badge-unpaid">Unpaid</span>' : ''}
           ${s.service_date || ''}${s.service_time ? ` at ${time12(s.service_time)}` : ''}
           ${s.price != null ? ` · <strong>$${fmtPrice(s.price)}</strong>` : ''}
-          ${s.paid && s.amount_paid != null ? ` · <span style="color:#27ae60;">Paid $${fmtPrice(s.amount_paid)}</span>` : ''}
-          ${s.notes ? `<br><span style="color:#aaa;font-size:13px;">${escapeHtml(s.notes)}</span>` : ''}
+          ${s.paid && s.amount_paid != null ? ` · <span class="service-paid">Paid $${fmtPrice(s.amount_paid)}</span>` : ''}
+          ${s.notes ? `<br><span class="service-notes-muted">${escapeHtml(s.notes)}</span>` : ''}
         </div>
         <a class="service-edit-btn" href="#/service/${s.id}/edit" data-nav>
           <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -114,14 +119,4 @@ function buildQuoteCard(q, navigate) {
   });
 
   return card;
-}
-
-function capitalize(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
-}
-
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }
