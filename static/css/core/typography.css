@@ -13,16 +13,8 @@ h3 {
 }
 
 .page-header h1,
-.page-header h2,
-.page > h1,
-.page > h2,
-.container > h1,
-.container > h2 {
-  text-align: center;
-}
-
-.page-header h1,
 .page-header h2 {
+  text-align: center;
   margin-bottom: var(--space-lg);
 }
 
@@ -35,18 +27,16 @@ h3 {
   margin: var(--space-xl) 0 var(--space-sm);
 }
 
-.field-label {
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-base);
-  color: #555555;
-}
-
-.price {
+.item-title--xl {
   font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
+  margin-bottom: var(--space-xs);
 }
 
-.quote {
-  margin-top: var(--space-sm);
-  line-height: var(--line-height-relaxed);
+.meta-row {
+  font-size: var(--font-size-base);
+  color: #666666;
+  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }

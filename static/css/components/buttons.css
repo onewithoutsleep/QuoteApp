@@ -1,5 +1,4 @@
-.btn,
-button:not(.fab):not(.expense-delete):not(.edit-link):not(.complete-btn):not(.sheet-cancel-btn) {
+.btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -10,43 +9,40 @@ button:not(.fab):not(.expense-delete):not(.edit-link):not(.complete-btn):not(.sh
   font-weight: var(--font-weight-bold);
   width: 100%;
   cursor: pointer;
+  font-family: inherit;
   -webkit-tap-highlight-color: transparent;
   transition: opacity var(--transition-fast);
 }
 
-.btn:active,
-button:not(.fab):active {
+.btn:active {
   opacity: 0.8;
 }
 
-.btn-primary,
-button:not(.fab):not(.btn-secondary):not(.btn-danger):not(.btn-outline):not(.btn-link):not(.btn-green):not(.expense-delete):not(.edit-link):not(.complete-btn):not(.sheet-cancel-btn):not(.sheet-save-btn) {
+.btn-primary {
   background: var(--color-primary);
   color: var(--color-surface);
-  border: none;
 }
 
 .btn-secondary {
   background: var(--color-surface-alt);
   color: var(--color-text);
-  border: none;
 }
 
 .btn-danger {
   background: var(--color-danger);
   color: var(--color-surface);
-  border: none;
   margin-top: var(--space-xs);
+}
+
+.btn-success {
+  background: var(--color-success);
+  color: var(--color-surface);
 }
 
 .btn-outline {
   background: var(--color-surface);
   color: var(--color-primary);
   border: 2px solid var(--color-primary);
-}
-
-.btn-green {
-  background: var(--color-success) !important;
 }
 
 .btn-link {
@@ -57,89 +53,79 @@ button:not(.fab):not(.btn-secondary):not(.btn-danger):not(.btn-outline):not(.btn
   font-size: var(--font-size-md);
   background: transparent;
   border: none;
-  cursor: pointer;
   width: 100%;
   font-weight: var(--font-weight-normal);
 }
 
-.sheet-save-btn {
-  background: var(--color-success);
-  color: var(--color-surface);
+.btn-sm {
+  width: auto;
+  font-size: var(--font-size-sm);
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--radius-round);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.btn-icon--success {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.btn-icon svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+.btn-ghost {
+  background: none;
+  border: none;
+  color: var(--color-border-light);
+  font-size: var(--font-size-xl);
+  width: auto;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.btn-ghost:active {
+  color: var(--color-danger);
+}
+
+.btn-ghost--success {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.btn-sm.is-done {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.sheet-save-btn,
+.sheet-cancel-btn {
+  width: 100%;
   border: none;
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
   font-size: 17px;
   font-weight: var(--font-weight-bold);
   cursor: pointer;
-  width: 100%;
+}
+
+.sheet-save-btn {
+  background: var(--color-success);
+  color: var(--color-surface);
 }
 
 .sheet-cancel-btn {
   background: var(--color-surface-alt);
   color: var(--color-text);
-  border: none;
-  border-radius: var(--radius-lg);
   padding: 14px;
   font-size: var(--font-size-lg);
-  cursor: pointer;
-  width: 100%;
-}
-
-.complete-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: 5px 10px;
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-bold);
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-  width: auto;
-}
-
-.complete-btn.not-done {
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-}
-
-.complete-btn.is-done {
-  background: var(--color-success-light);
-  color: var(--color-success);
-}
-
-.edit-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-round);
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-  border: none;
-  cursor: pointer;
-  font-size: var(--font-size-lg);
-  padding: 0;
-  width: 36px;
-}
-
-.edit-link--map {
-  background: var(--color-success-light);
-  color: var(--color-success);
-}
-
-.expense-delete {
-  background: none;
-  border: none;
-  color: var(--color-border-light);
-  font-size: var(--font-size-xl);
-  cursor: pointer;
-  padding: var(--space-xs) var(--space-sm);
-  width: auto;
-}
-
-.expense-delete:active {
-  color: var(--color-danger);
 }

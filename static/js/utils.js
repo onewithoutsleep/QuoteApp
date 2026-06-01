@@ -50,33 +50,18 @@ export function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+import { openPhoneSheet } from './components/phone-sheet.js';
+
 export function handlePhone(e, rawPhone, digits) {
   e.preventDefault();
-  const sheet = document.createElement('div');
-  sheet.className = 'sheet-overlay';
-  sheet.innerHTML = `
-    <div class="sheet-body">
-      <div class="sheet-title">${rawPhone}</div>
-      <a href="tel:${digits}" class="sheet-action sheet-action--call">Call</a>
-      <a href="sms:${digits}" class="sheet-action sheet-action--text">Text</a>
-      <button type="button" class="sheet-cancel-btn">Cancel</button>
-    </div>`;
-  sheet.querySelector('.sheet-cancel-btn').addEventListener('click', () => sheet.remove());
-  sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheet.remove(); });
-  document.body.appendChild(sheet);
+  openPhoneSheet(rawPhone, digits);
 }
 
 export function bindRadioGroup(container) {
-  container.querySelectorAll('.found-via-option input, .cat-opt input, .option-chip input').forEach((radio) => {
+  container.querySelectorAll('.option-chip input').forEach((radio) => {
     radio.addEventListener('change', () => {
-      const label = radio.closest('label');
-      const labelClass = label?.classList.contains('cat-opt')
-        ? '.cat-opt'
-        : label?.classList.contains('option-chip')
-          ? '.option-chip'
-          : '.found-via-option';
-      container.querySelectorAll(labelClass).forEach((l) => l.classList.remove('selected'));
-      label?.classList.add('selected');
+      container.querySelectorAll('.option-chip').forEach((l) => l.classList.remove('selected'));
+      radio.closest('.option-chip')?.classList.add('selected');
     });
   });
 }

@@ -4,18 +4,19 @@ import { createPage, mountPage } from '../components/page.js';
 import { PageHeader } from '../components/page-header.js';
 import { EmptyState } from '../components/empty-state.js';
 import { LoadingState } from '../components/loading-state.js';
-import { escapeHtml, capitalize } from '../components/dom.js';
-import { BottomSheet } from '../components/sheet.js';
-import { fmtPrice, time12, fmtPhone, fmtDate, phoneDigits, handlePhone } from '../utils.js';
+import { BookingCard } from '../components/booking-card.js';
+import { fmtDate } from '../utils.js';
 
 let servicesRaw = [];
 let byDate = {};
 let activeDate = null;
 let todayStr = '';
+let pageNavigate = null;
 const today = new Date();
 
 export const bookingsPage = {
   async mount({ root, slots, navigate }) {
+    pageNavigate = navigate;
     renderNav(slots.nav, 'bookings');
     today.setHours(0, 0, 0, 0);
     todayStr = today.toISOString().slice(0, 10);
@@ -27,26 +28,27 @@ export const bookingsPage = {
     calWrap.innerHTML = '<div class="cal-strip" id="calStrip"></div>';
     const header = PageHeader({ title: 'Bookings', tag: 'h2' });
     header.classList.add('no-margin-top');
-    const listEl = document.createElement('div');
-    listEl.id = 'bookingsList';
-    listEl.appendChild(LoadingState());
-    content.append(calWrap, header, listEl);
+    const list = document.createElement('div');
+    list.className = 'page-list';
+    list.appendChild(LoadingState());
+    content.append(calWrap, header, list);
     mountPage(root, page);
 
     try {
       servicesRaw = await api.getBookings() || [];
       rebuildByDate();
       buildStrip(root);
-      renderBookings(root, navigate);
+      renderBookings(list);
     } catch (err) {
-      listEl.innerHTML = '';
-      listEl.appendChild(EmptyState('Failed to load bookings.'));
+      list.innerHTML = '';
+      list.appendChild(EmptyState('Failed to load bookings.'));
       console.error(err);
     }
   },
   unmount() {
     servicesRaw = [];
     byDate = {};
+    pageNavigate = null;
   },
 };
 
@@ -70,34 +72,29 @@ function buildStrip(root) {
     const el = document.createElement('div');
     el.className = 'cal-day' + (ds === todayStr ? ' today' : '') + (ds === activeDate ? ' active' : '');
     el.dataset.date = ds;
-    const hasBookings = !!byDate[ds];
     el.innerHTML = `
       <div class="dow">${DOW[d.getDay()]}</div>
       <div class="dom">${d.getDate()}</div>
-      ${hasBookings ? '<div class="dot"></div>' : '<div class="cal-spacer"></div>'}`;
+      ${byDate[ds] ? '<div class="dot"></div>' : '<div class="cal-spacer"></div>'}`;
     el.addEventListener('click', () => {
       activeDate = activeDate === ds ? null : ds;
       buildStrip(root);
-      renderBookings(root, navigate);
+      renderBookings(root.querySelector('.page-list'));
     });
     strip.appendChild(el);
   }
-  const scrollTarget = strip.querySelector(`[data-date="${activeDate || todayStr}"]`);
-  if (scrollTarget) setTimeout(() => scrollTarget.scrollIntoView({ inline: 'center', behavior: 'smooth' }), 50);
+  strip.querySelector(`[data-date="${activeDate || todayStr}"]`)
+    ?.scrollIntoView({ inline: 'center', behavior: 'smooth' });
 }
 
-function renderBookings(root, navigate) {
-  const list = root.querySelector('#bookingsList');
-  let datesToShow;
-  if (activeDate) {
-    datesToShow = [activeDate];
-  } else {
-    datesToShow = Object.keys(byDate).filter((d) => d !== 'no-date').sort();
-    if (byDate['no-date']) datesToShow.push('no-date');
-  }
+function renderBookings(list) {
+  let datesToShow = activeDate
+    ? [activeDate]
+    : [...Object.keys(byDate).filter((d) => d !== 'no-date').sort(), ...(byDate['no-date'] ? ['no-date'] : [])];
 
   if (!datesToShow.length) {
-    list.innerHTML = '<div class="no-bookings-day">No bookings yet.</div>';
+    list.innerHTML = '';
+    list.appendChild(EmptyState('No bookings yet.'));
     return;
   }
 
@@ -105,136 +102,25 @@ function renderBookings(root, navigate) {
   datesToShow.forEach((ds) => {
     const items = byDate[ds] || [];
     if (!items.length) {
-      if (activeDate) list.innerHTML = '<div class="no-bookings-day">No bookings on this day.</div>';
+      if (activeDate) list.appendChild(EmptyState('No bookings on this day.'));
       return;
     }
     const group = document.createElement('section');
-    group.className = 'section booking-date-group';
-    group.innerHTML = `<div class="booking-date-header">${ds === 'no-date' ? 'No Date' : fmtDate(ds)}</div>`;
-    items.forEach((s) => group.appendChild(buildBookingCard(s, navigate)));
+    group.className = 'section';
+    group.innerHTML = `<div class="group-heading">${ds === 'no-date' ? 'No Date' : fmtDate(ds)}</div>`;
+    items.forEach((s) => group.appendChild(BookingCard(s, pageNavigate, onBookingSaved)));
     list.appendChild(group);
   });
 }
 
-function buildBookingCard(s, navigate) {
-  const card = document.createElement('div');
-  card.className = 'booking-card';
-  const price = s.price != null ? fmtPrice(s.price) : null;
-  const amtPaid = s.amount_paid != null ? fmtPrice(s.amount_paid) : null;
-  const fPhone = fmtPhone(s.phone);
-  const digits = phoneDigits(s.phone);
-  const mapsUrl = s.address ? `https://maps.apple.com/?q=${encodeURIComponent(s.address)}` : '#';
-  const doneClass = s.completed ? 'is-done' : 'not-done';
-  const doneLabel = s.completed ? 'Done' : 'Mark Done';
-
-  card.innerHTML = `
-    <div class="booking-row">
-      <div class="booking-info">
-        <div class="booking-customer">
-          ${s.service_time ? `<span class="bk-badge bk-time">${time12(s.service_time)}</span>` : ''}
-          ${escapeHtml(s.customer || '')}
-        </div>
-        <a class="booking-address" href="${mapsUrl}" target="_blank" rel="noopener">${escapeHtml(s.address || '')}</a>
-        ${fPhone ? `<a class="booking-phone" href="tel:${digits}">${fPhone}</a>` : ''}
-        <div class="booking-meta mt-xs">
-          ${s.type ? `<span class="bk-badge bk-type">${capitalize(s.type)}</span>` : ''}
-          ${s.windows ? `<span class="bk-badge bk-muted">${s.windows} windows</span>` : ''}
-          ${s.completed && !s.paid ? '<span class="bk-badge bk-unpaid">Unpaid</span>' : ''}
-          ${s.paid && amtPaid ? `<span class="bk-paid">Paid $${amtPaid}</span>` : ''}
-          ${s.completed && s.duration_minutes ? `<span class="bk-badge bk-duration">${s.duration_minutes} min</span>` : ''}
-        </div>
-        ${s.notes ? `<div class="booking-notes">${escapeHtml(s.notes)}</div>` : ''}
-      </div>
-      <div class="booking-actions">
-        ${price ? `<div class="booking-price">$${price}</div>` : ''}
-        <button type="button" class="complete-btn ${doneClass}">${doneLabel}</button>
-        <button type="button" class="edit-link edit-link--map" title="Show on map">📍</button>
-        <button type="button" class="edit-link" title="Edit">✎</button>
-      </div>
-    </div>`;
-
-  const phoneEl = card.querySelector('.booking-phone');
-  if (phoneEl) {
-    phoneEl.addEventListener('click', (e) => handlePhone(e, s.phone, digits));
+function onBookingSaved(svcId, patch) {
+  servicesRaw.forEach((s) => {
+    if (s.id === svcId) Object.assign(s, patch);
+  });
+  rebuildByDate();
+  const root = document.getElementById('page-root');
+  if (root) {
+    buildStrip(root);
+    renderBookings(root.querySelector('.page-list'));
   }
-  card.querySelector('.booking-address')?.addEventListener('click', (e) => e.stopPropagation());
-  card.querySelector('.complete-btn')?.addEventListener('click', () => openCompleteSheet(s));
-  card.querySelector('.edit-link--map')?.addEventListener('click', () => navigate(`#/map?highlight=${s.house_id || ''}`));
-  card.querySelector('.edit-link:not(.edit-link--map)')?.addEventListener('click', () => navigate(`#/service/${s.id}/edit`));
-
-  return card;
-}
-
-function openCompleteSheet(svc) {
-  const isComplete = !!svc.completed;
-  const isPaid = !!svc.paid;
-  const sheet = BottomSheet({
-    body: `
-      <div class="sheet-title">${escapeHtml(svc.customer || '')}</div>
-      <div class="sheet-address">${escapeHtml(svc.address || '')}</div>
-      <div class="toggle-row">
-        <span class="toggle-label">Mark as Complete</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="sCompleted" ${isComplete ? 'checked' : ''}>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div id="sPaySection" style="${isComplete ? '' : 'display:none'}">
-        <label class="field-label">Minutes</label>
-        <input type="number" id="sDuration" class="sheet-input" placeholder="e.g. 45" value="${svc.duration_minutes || ''}">
-        <div class="toggle-row">
-          <span class="toggle-label">Paid</span>
-          <label class="toggle-switch">
-            <input type="checkbox" id="sPaid" ${isPaid ? 'checked' : ''}>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div id="sAmtSection" style="${isPaid ? '' : 'display:none'}">
-          <label class="field-label">Amount Paid ($)</label>
-          <input type="number" id="sAmtPaid" class="sheet-input" step="0.01" value="${svc.amount_paid || ''}">
-        </div>
-      </div>
-      <button type="button" class="sheet-save-btn">Save</button>
-      <button type="button" class="sheet-cancel-btn">Cancel</button>`,
-  });
-
-  const completedEl = sheet.querySelector('#sCompleted');
-  const paySec = sheet.querySelector('#sPaySection');
-  const paidEl = sheet.querySelector('#sPaid');
-  const amtSec = sheet.querySelector('#sAmtSection');
-
-  completedEl?.addEventListener('change', () => {
-    paySec.style.display = completedEl.checked ? '' : 'none';
-  });
-  paidEl?.addEventListener('change', () => {
-    amtSec.style.display = paidEl.checked ? '' : 'none';
-  });
-
-  sheet.querySelector('.sheet-save-btn')?.addEventListener('click', async () => {
-    const form = new FormData();
-    form.append('completed', completedEl.checked ? '1' : '0');
-    form.append('paid', paidEl?.checked ? '1' : '0');
-    form.append('amount_paid', sheet.querySelector('#sAmtPaid')?.value || '');
-    form.append('duration_minutes', sheet.querySelector('#sDuration')?.value || '');
-    try {
-      await api.completeService(svc.id, form);
-      servicesRaw.forEach((s) => {
-        if (s.id === svc.id) {
-          s.completed = completedEl.checked ? 1 : 0;
-          s.paid = paidEl?.checked ? 1 : 0;
-          s.amount_paid = form.get('amount_paid') ? parseFloat(form.get('amount_paid')) : null;
-          s.duration_minutes = form.get('duration_minutes') ? parseInt(form.get('duration_minutes'), 10) : null;
-        }
-      });
-      rebuildByDate();
-      sheet.remove();
-      const root = document.getElementById('page-root');
-      if (root) {
-        buildStrip(root);
-        renderBookings(root, (h) => { location.hash = h; });
-      }
-    } catch {
-      alert('Error saving. Please try again.');
-    }
-  });
 }

@@ -100,16 +100,16 @@ function initMap(el, data, highlightId, navigate) {
 
     let buttons = '';
     if (h.service_id) {
-      buttons = `<button type="button" data-go="quote-edit">Edit Quote</button>
-        <button type="button" class="btn-green" data-go="service-edit">Edit Booking</button>`;
+      buttons = `<button type="button" class="btn btn-primary btn-sm" data-go="quote-edit">Edit Quote</button>
+        <button type="button" class="btn btn-success btn-sm" data-go="service-edit">Edit Booking</button>`;
     } else if (h.quote_id) {
-      buttons = `<button type="button" data-go="quote-edit">Edit Quote</button>
-        <button type="button" class="btn-green" data-go="service-new">Book Service</button>`;
+      buttons = `<button type="button" class="btn btn-primary btn-sm" data-go="quote-edit">Edit Quote</button>
+        <button type="button" class="btn btn-success btn-sm" data-go="service-new">Book Service</button>`;
     } else {
-      buttons = `<button type="button" data-go="quote-new">Add Quote</button>`;
+      buttons = `<button type="button" class="btn btn-primary btn-sm" data-go="quote-new">Add Quote</button>`;
     }
-    const deleteBtn = h.quote_id ? '' : `<button type="button" class="btn-red" data-delete>Delete</button>`;
-    const moveBtn = `<button type="button" class="btn-orange" data-move>Move Dot</button>`;
+    const deleteBtn = h.quote_id ? '' : `<button type="button" class="btn btn-danger btn-sm" data-delete>Delete</button>`;
+    const moveBtn = `<button type="button" class="btn btn-outline btn-sm" data-move>Move Dot</button>`;
 
     return `<b>${h.address || 'No Address'}</b><br>${knockLine}${customerLine}${bookingLine}
       <div class="popup-actions">${buttons}${deleteBtn}${moveBtn}</div>`;

@@ -2,10 +2,12 @@ import * as api from '../api.js';
 import { renderNav } from '../components/nav.js';
 import { createPage, mountPage } from '../components/page.js';
 import { Card } from '../components/card.js';
+import { FormField, chipField, optionChipGroup } from '../components/form.js';
+import { Button } from '../components/button.js';
 import { LoadingState } from '../components/loading-state.js';
-import { optionChipGroup } from '../components/form.js';
-import { escAttr, escapeHtml, capitalize } from '../components/dom.js';
-import { todayISO, bindRadioGroup, fmtPrice, parseTime24, serviceTimeTo24 } from '../utils.js';
+import { TapPricePanel } from '../components/pills.js';
+import { escapeHtml, capitalize } from '../components/dom.js';
+import { todayISO, bindRadioGroup, parseTime24, serviceTimeTo24 } from '../utils.js';
 
 const SERVICE_TYPES = ['outside', 'inside', 'both', 'other'];
 
@@ -22,106 +24,89 @@ export const serviceFormPage = {
 
     let service = null;
     let quote = null;
-
     try {
       if (isEdit) {
         service = await api.getService(serviceId);
-        if (!service) {
-          navigate('#/bookings');
-          return;
-        }
+        if (!service) return navigate('#/bookings');
       } else {
         quote = await api.getQuote(quoteId);
-        if (!quote) {
-          navigate('#/quotes');
-          return;
-        }
+        if (!quote) return navigate('#/quotes');
       }
     } catch (err) {
       console.error(err);
-      navigate('#/bookings');
-      return;
+      return navigate('#/bookings');
     }
 
     const data = service || quote;
     const t = parseTime24(service?.service_time || '');
-    const currentType = service?.type || 'outside';
     const backHash = '#/bookings';
 
+    const form = document.createElement('form');
+    form.id = 'service-form';
+    if (!isEdit) form.append(hidden('quote_id', quote.id));
+
+    const timeWrap = document.createElement('div');
+    timeWrap.className = 'form-group';
+    timeWrap.innerHTML = `<label class="field-label">Time</label><div class="time-row">
+      <select class="input" name="service_time_hour">${hours(t.hour)}</select>
+      <select class="input" name="service_time_min">${mins(t.min)}</select>
+      <select class="input" name="service_time_ampm">
+        <option value="AM" ${t.ampm === 'AM' ? 'selected' : ''}>AM</option>
+        <option value="PM" ${t.ampm === 'PM' ? 'selected' : ''}>PM</option>
+      </select></div>`;
+
+    form.append(
+      FormField({ label: 'Date', name: 'service_date', type: 'date', value: service?.service_date || todayISO(), required: true }),
+      timeWrap,
+      chipField('Service Type', optionChipGroup({ name: 'type', options: SERVICE_TYPES.map((v) => ({ value: v, label: capitalize(v) })), selected: service?.type || 'outside' })),
+      FormField({ label: 'Price ($)', name: 'price', type: 'number', value: service?.price ?? '', attrs: { id: 'priceInput', step: '0.01' } }),
+      FormField({ label: 'Notes', name: 'notes', type: 'textarea', value: service?.notes }),
+    );
+    if (isEdit) form.append(completionBlock(service));
+
+    const actions = document.createElement('div');
+    actions.className = 'form-actions';
+    actions.append(
+      Button({ label: isEdit ? 'Save Changes' : 'Confirm Booking', type: 'submit' }),
+      ...(isEdit ? [Button({ label: 'Delete Booking', type: 'button', variant: 'danger', attrs: { id: 'delete-svc' } })] : []),
+      Button({ label: 'Cancel', type: 'button', variant: 'link', attrs: { id: 'cancel-btn' } }),
+    );
+    form.append(actions);
+
     content.innerHTML = '';
-    const formCard = Card({
-      header: `<h2>${isEdit ? 'Edit Booking' : 'Book Service'}</h2>`,
-      body: `
-        ${isEdit ? `<a class="address-link" href="https://maps.apple.com/?q=${encodeURIComponent(data.address || '')}" target="_blank" rel="noopener">📍 ${escapeHtml(data.address)}</a>` : `<div class="address-readonly">${escapeHtml(data.address)}</div>`}
-        <div class="customer-ref">${escapeHtml(data.customer)}${data.phone ? ` · ${escapeHtml(data.phone)}` : ''}</div>
-        ${renderQuoteRef(data)}
-        <form id="service-form">
-          ${!isEdit ? `<input type="hidden" name="quote_id" value="${quote.id}">` : ''}
-          <label class="field-label">Date</label>
-          <input class="input" type="date" name="service_date" required value="${service?.service_date || todayISO()}">
-          <label class="field-label">Time</label>
-          <div class="time-row">
-            <select name="service_time_hour">${hourOptions(t.hour)}</select>
-            <select name="service_time_min">${minOptions(t.min)}</select>
-            <select name="service_time_ampm">
-              <option value="AM" ${t.ampm === 'AM' ? 'selected' : ''}>AM</option>
-              <option value="PM" ${t.ampm === 'PM' ? 'selected' : ''}>PM</option>
-            </select>
-          </div>
-          <label class="field-label">Service Type</label>
-          <div id="type-group-slot"></div>
-          <label class="field-label">Price ($)</label>
-          <input class="input" type="number" id="priceInput" name="price" step="0.01" value="${service?.price ?? ''}">
-          <label class="field-label">Notes</label>
-          <textarea name="notes">${escapeHtml(service?.notes)}</textarea>
-          ${isEdit ? renderCompletionSection(service) : ''}
-          <button type="submit">${isEdit ? 'Save Changes' : 'Confirm Booking'}</button>
-          ${isEdit ? '<button type="button" id="delete-svc" class="btn-danger">Delete Booking</button>' : ''}
-          <button type="button" class="btn-link" id="cancel-btn">Cancel</button>
-        </form>`,
-    });
-    content.appendChild(formCard);
-
-    const typeSlot = root.querySelector('#type-group-slot');
-    const typeGroup = optionChipGroup({
-      name: 'type',
-      options: SERVICE_TYPES.map((v) => ({ value: v, label: capitalize(v) })),
-      selected: currentType,
-    });
-    typeGroup.id = 'type-group';
-    typeSlot.replaceWith(typeGroup);
-    bindRadioGroup(root);
-
-    root.querySelectorAll('.qrp.tap').forEach((el) => {
-      el.addEventListener('click', () => {
-        root.querySelector('#priceInput').value = el.dataset.price;
-        root.querySelector('#priceInput').focus();
-      });
-    });
-
+    const cardBody = document.createDocumentFragment();
     if (isEdit) {
-      const completedToggle = root.querySelector('#completedToggle');
-      const paidToggle = root.querySelector('#paidToggle');
-      completedToggle?.addEventListener('change', () => {
-        root.querySelector('#paymentFields').style.display = completedToggle.checked ? '' : 'none';
-      });
-      paidToggle?.addEventListener('change', () => {
-        root.querySelector('#amountPaidField').style.display = paidToggle.checked ? '' : 'none';
-      });
-      root.querySelector('#delete-svc')?.addEventListener('click', async () => {
-        if (!confirm('Delete this booking?')) return;
-        try {
-          await api.deleteService(serviceId);
-          navigate(backHash);
-        } catch (err) {
-          alert('Failed to delete.');
-        }
-      });
+      const link = document.createElement('a');
+      link.className = 'address-link';
+      link.href = `https://maps.apple.com/?q=${encodeURIComponent(data.address || '')}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = `📍 ${data.address || ''}`;
+      cardBody.appendChild(link);
+    } else {
+      const ro = document.createElement('div');
+      ro.className = 'address-readonly';
+      ro.textContent = data.address || '';
+      cardBody.appendChild(ro);
     }
+    const ref = document.createElement('div');
+    ref.className = 'text-subtle';
+    ref.textContent = `${data.customer || ''}${data.phone ? ` · ${data.phone}` : ''}`;
+    cardBody.append(ref, pricePanel(data), form);
+    content.appendChild(Card({ header: `<h2>${isEdit ? 'Edit Booking' : 'Book Service'}</h2>`, body: cardBody }));
+
+    bindRadioGroup(root);
+    bindPriceTaps(root);
+    if (isEdit) bindCompletionToggles(root);
 
     root.querySelector('#cancel-btn')?.addEventListener('click', () => navigate(backHash));
+    root.querySelector('#delete-svc')?.addEventListener('click', async () => {
+      if (!confirm('Delete this booking?')) return;
+      await api.deleteService(serviceId);
+      navigate(backHash);
+    });
 
-    root.querySelector('#service-form')?.addEventListener('submit', async (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const payload = {
@@ -149,62 +134,61 @@ export const serviceFormPage = {
   unmount() {},
 };
 
-function renderQuoteRef(data) {
-  if (!data.outside_price && !data.inside_price && !data.both_price) return '';
-  const pills = [];
-  if (data.outside_price != null) pills.push(pill('Outside', data.outside_price));
-  if (data.inside_price != null) pills.push(pill('Inside', data.inside_price));
-  if (data.both_price != null) pills.push(pill('Both', data.both_price));
-  return `<div class="quote-ref">
-    <div class="quote-ref-label">Quote Prices — tap to use</div>
-    <div class="quote-ref-prices">${pills.join('')}</div>
-  </div>`;
+function hidden(name, value) {
+  const i = document.createElement('input');
+  i.type = 'hidden';
+  i.name = name;
+  i.value = value;
+  return i;
 }
 
-function pill(label, price) {
-  const p = fmtPrice(price);
-  return `<div class="qrp tap" data-price="${p}"><div class="lbl">${label}</div><div class="val">$${p}</div></div>`;
+function pricePanel(data) {
+  const items = [];
+  if (data.outside_price != null) items.push({ label: 'Outside', price: data.outside_price });
+  if (data.inside_price != null) items.push({ label: 'Inside', price: data.inside_price });
+  if (data.both_price != null) items.push({ label: 'Both', price: data.both_price });
+  return items.length ? TapPricePanel(items) : document.createDocumentFragment();
 }
 
-function renderCompletionSection(service) {
-  return `<div class="completion-section">
-    <h3>Completion</h3>
-    <div class="toggle-row">
-      <span class="toggle-label">Mark as Complete</span>
-      <label class="toggle-switch">
-        <input type="checkbox" name="completed" id="completedToggle" value="1" ${service.completed ? 'checked' : ''}>
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-    <div class="payment-fields" id="paymentFields" style="${service.completed ? '' : 'display:none'}">
-      <label class="field-label">Minutes</label>
-      <input class="input" type="number" name="duration_minutes" value="${service.duration_minutes || ''}">
-      <div class="toggle-row">
-        <span class="toggle-label">Paid</span>
-        <label class="toggle-switch">
-          <input type="checkbox" name="paid" id="paidToggle" value="1" ${service.paid ? 'checked' : ''}>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div id="amountPaidField" style="${service.paid ? '' : 'display:none'}">
-        <label class="field-label">Amount Paid ($)</label>
-        <input class="input" type="number" name="amount_paid" step="0.01" value="${service.amount_paid || ''}">
-      </div>
-    </div>
-  </div>`;
+function completionBlock(service) {
+  const wrap = document.createElement('div');
+  wrap.className = 'panel--success';
+  wrap.innerHTML = `<h3>Completion</h3>
+    <div class="toggle-row"><span class="toggle-label">Mark as Complete</span>
+      <label class="toggle-switch"><input type="checkbox" name="completed" id="completedToggle" value="1" ${service.completed ? 'checked' : ''}><span class="toggle-slider"></span></label></div>
+    <div id="paymentFields" ${service.completed ? '' : 'hidden'}>
+      <label class="field-label">Minutes</label><input class="input" type="number" name="duration_minutes" value="${service.duration_minutes || ''}">
+      <div class="toggle-row"><span class="toggle-label">Paid</span>
+        <label class="toggle-switch"><input type="checkbox" name="paid" id="paidToggle" value="1" ${service.paid ? 'checked' : ''}><span class="toggle-slider"></span></label></div>
+      <div id="amountPaidField" ${service.paid ? '' : 'hidden'}>
+        <label class="field-label">Amount Paid ($)</label><input class="input" type="number" name="amount_paid" step="0.01" value="${service.amount_paid || ''}">
+      </div></div>`;
+  return wrap;
 }
 
-function hourOptions(selected) {
-  let html = '';
-  for (let h = 1; h <= 12; h++) {
-    const v = String(h).padStart(2, '0');
-    html += `<option value="${v}" ${v === selected ? 'selected' : ''}>${h}</option>`;
-  }
-  return html;
+function bindPriceTaps(root) {
+  root.querySelectorAll('.pill--tap').forEach((el) => {
+    el.addEventListener('click', () => {
+      root.querySelector('#priceInput').value = el.dataset.price;
+      root.querySelector('#priceInput').focus();
+    });
+  });
 }
 
-function minOptions(selected) {
-  return ['00', '15', '30', '45'].map((m) =>
-    `<option value="${m}" ${m === selected ? 'selected' : ''}>${m}</option>`
-  ).join('');
+function bindCompletionToggles(root) {
+  const completed = root.querySelector('#completedToggle');
+  const paid = root.querySelector('#paidToggle');
+  completed?.addEventListener('change', () => { root.querySelector('#paymentFields').hidden = !completed.checked; });
+  paid?.addEventListener('change', () => { root.querySelector('#amountPaidField').hidden = !paid.checked; });
+}
+
+function hours(selected) {
+  return Array.from({ length: 12 }, (_, i) => {
+    const v = String(i + 1).padStart(2, '0');
+    return `<option value="${v}" ${v === selected ? 'selected' : ''}>${i + 1}</option>`;
+  }).join('');
+}
+
+function mins(selected) {
+  return ['00', '15', '30', '45'].map((m) => `<option value="${m}" ${m === selected ? 'selected' : ''}>${m}</option>`).join('');
 }

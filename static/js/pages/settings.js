@@ -1,15 +1,15 @@
 import * as api from '../api.js';
-import { renderNav } from '../components/nav.js';
 import { createPage, mountPage } from '../components/page.js';
 import { Card } from '../components/card.js';
+import { Button } from '../components/button.js';
 import { LoadingState } from '../components/loading-state.js';
 import { EmptyState } from '../components/empty-state.js';
-import { escAttr, escapeHtml } from '../components/dom.js';
+import { renderNav } from '../components/nav.js';
+import { escapeHtml, escAttr } from '../components/dom.js';
 
 export const settingsPage = {
   async mount({ root, slots, navigate }) {
     renderNav(slots.nav, 'stats');
-
     const { page, content } = createPage({ title: 'Settings', className: 'settings-page' });
     content.appendChild(LoadingState());
     mountPage(root, page);
@@ -17,41 +17,36 @@ export const settingsPage = {
     try {
       const s = await api.getSettings();
       content.innerHTML = '';
-      const formCard = Card({
-        body: `
-          <form id="settings-form">
-            <h2>Pricing (per window)</h2>
-            <input class="input" name="outside_rate" type="number" step="0.01" placeholder="Outside Rate" value="${escAttr(s.outside_rate)}">
-            <input class="input" name="inside_rate" type="number" step="0.01" placeholder="Inside Rate" value="${escAttr(s.inside_rate)}">
-            <input class="input" name="both_rate" type="number" step="0.01" placeholder="Both Rate" value="${escAttr(s.both_rate)}">
-            <h2>Email Template</h2>
-            <p class="hint">Use <code>{customer}</code>, <code>{outside}</code>, <code>{inside}</code>, <code>{both}</code> as placeholders.</p>
-            <textarea name="email_template">${escapeHtml(s.email_template)}</textarea>
-            <h2>Text Template</h2>
-            <p class="hint">Same placeholders as above.</p>
-            <textarea name="text_template">${escapeHtml(s.text_template)}</textarea>
-            <button type="submit">Save</button>
-            <button type="button" class="btn-link" id="cancel-btn">Cancel</button>
-          </form>`,
-      });
-      content.appendChild(formCard);
+      const form = document.createElement('form');
+      form.id = 'settings-form';
+      form.innerHTML = `
+        <h2>Pricing (per window)</h2>
+        ${field('outside_rate', s.outside_rate, 'Outside Rate')}
+        ${field('inside_rate', s.inside_rate, 'Inside Rate')}
+        ${field('both_rate', s.both_rate, 'Both Rate')}
+        <h2>Email Template</h2>
+        <p class="hint">Use <code>{customer}</code>, <code>{outside}</code>, <code>{inside}</code>, <code>{both}</code> as placeholders.</p>
+        <textarea class="input" name="email_template">${escapeHtml(s.email_template)}</textarea>
+        <h2>Text Template</h2>
+        <p class="hint">Same placeholders as above.</p>
+        <textarea class="input" name="text_template">${escapeHtml(s.text_template)}</textarea>`;
+      form.append(
+        Button({ label: 'Save', type: 'submit' }),
+        Button({ label: 'Cancel', type: 'button', variant: 'link', attrs: { id: 'cancel-btn' } }),
+      );
+      content.appendChild(Card({ body: form }));
 
-      root.querySelector('#settings-form')?.addEventListener('submit', async (e) => {
+      form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
-        try {
-          await api.updateSettings({
-            outside_rate: fd.get('outside_rate'),
-            inside_rate: fd.get('inside_rate'),
-            both_rate: fd.get('both_rate'),
-            email_template: fd.get('email_template'),
-            text_template: fd.get('text_template'),
-          });
-          navigate('#/quotes');
-        } catch (err) {
-          alert('Failed to save settings.');
-          console.error(err);
-        }
+        await api.updateSettings({
+          outside_rate: fd.get('outside_rate'),
+          inside_rate: fd.get('inside_rate'),
+          both_rate: fd.get('both_rate'),
+          email_template: fd.get('email_template'),
+          text_template: fd.get('text_template'),
+        });
+        navigate('#/quotes');
       });
       root.querySelector('#cancel-btn')?.addEventListener('click', () => navigate('#/quotes'));
     } catch (err) {
@@ -62,3 +57,7 @@ export const settingsPage = {
   },
   unmount() {},
 };
+
+function field(name, value, placeholder) {
+  return `<input class="input" name="${name}" type="number" step="0.01" placeholder="${escAttr(placeholder)}" value="${escAttr(value)}">`;
+}

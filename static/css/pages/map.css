@@ -26,29 +26,15 @@ body.map-active #map {
   min-width: 220px;
 }
 
-.leaflet-popup-content button {
-  font-size: var(--font-size-md);
-  padding: 9px 14px;
-  margin: var(--space-xs) var(--space-xs) 0 0;
-  border-radius: var(--radius-md);
-  border: none;
-  cursor: pointer;
-  font-weight: var(--font-weight-bold);
-  color: var(--color-surface);
-  background: var(--color-primary);
+.leaflet-popup-content .btn {
   width: auto;
+  margin: var(--space-xs) var(--space-xs) 0 0;
 }
 
-.leaflet-popup-content button.btn-green {
-  background: var(--color-success);
-}
-
-.leaflet-popup-content button.btn-red {
-  background: var(--color-danger);
-}
-
-.leaflet-popup-content button.btn-orange {
-  background: var(--color-orange);
+.popup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
 }
 
 .leaflet-popup-content-wrapper {

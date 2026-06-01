@@ -1,10 +1,13 @@
 import * as api from '../api.js';
-import { renderNav } from '../components/nav.js';
 import { createPage, mountPage } from '../components/page.js';
 import { Card } from '../components/card.js';
+import { FormField, FormLabel, optionChipGroup } from '../components/form.js';
+import { Button } from '../components/button.js';
+import { HighlightBar } from '../components/highlight-bar.js';
+import { ExpenseItem } from '../components/expense-item.js';
 import { EmptyState } from '../components/empty-state.js';
 import { LoadingState } from '../components/loading-state.js';
-import { escapeHtml } from '../components/dom.js';
+import { renderNav } from '../components/nav.js';
 import { fmtPrice, todayISO, bindRadioGroup } from '../utils.js';
 
 const CATEGORIES = ['Supplies', 'Fuel', 'Equipment', 'Marketing', 'Labor', 'Other'];
@@ -12,117 +15,84 @@ const CATEGORIES = ['Supplies', 'Fuel', 'Equipment', 'Marketing', 'Labor', 'Othe
 export const expensesPage = {
   async mount({ root, slots }) {
     renderNav(slots.nav, 'expenses');
+    const { page, content } = createPage({ title: 'Expenses', tag: 'h2' });
+    const totalSlot = document.createElement('div');
+    const list = document.createElement('div');
+    list.className = 'page-list';
 
-    const { page, content } = createPage({ title: 'Expenses', className: 'expenses-page', tag: 'h2' });
-    const totalEl = document.createElement('div');
-    totalEl.id = 'expenses-total';
-    const addCard = Card({
-      className: 'add-card',
-      header: '<h3>Add Expense</h3>',
-      body: `
-        <form id="expense-form">
-          <label class="field-label">Date</label>
-          <input type="date" class="input" name="expense_date" value="${todayISO()}" required>
-          <label class="field-label">Category</label>
-          <div class="cat-group" id="cat-group"></div>
-          <label class="field-label">Description</label>
-          <input type="text" class="input" name="description" placeholder="e.g. Squeegees, washer fluid">
-          <label class="field-label">Amount ($)</label>
-          <input type="number" class="input" name="amount" step="0.01" placeholder="e.g. 45.00">
-          <label class="field-label">Notes (optional)</label>
-          <textarea name="notes" placeholder="Any extra details…" style="min-height:60px;"></textarea>
-          <button type="submit">Add Expense</button>
-        </form>`,
-    });
-    const listEl = document.createElement('div');
-    listEl.id = 'expenses-list';
-    listEl.appendChild(LoadingState());
+    const form = document.createElement('form');
+    form.id = 'expense-form';
+    const catWrap = document.createElement('div');
+    catWrap.className = 'form-group';
+    catWrap.append(FormLabel('Category'), optionChipGroup({ name: 'category', options: CATEGORIES, thirds: true }));
+    form.append(
+      FormField({ label: 'Date', name: 'expense_date', type: 'date', value: todayISO(), required: true }),
+      catWrap,
+      FormField({ label: 'Description', name: 'description', placeholder: 'e.g. Squeegees, washer fluid' }),
+      FormField({ label: 'Amount ($)', name: 'amount', type: 'number', attrs: { step: '0.01', placeholder: 'e.g. 45.00' } }),
+      FormField({ label: 'Notes (optional)', name: 'notes', type: 'textarea', attrs: { style: 'min-height:60px' } }),
+      Button({ label: 'Add Expense', type: 'submit' }),
+    );
 
-    content.append(totalEl, addCard, listEl);
+    content.append(totalSlot, Card({ className: 'card--compact', header: '<h3>Add Expense</h3>', body: form }), list);
     mountPage(root, page);
-
-    const catGroup = root.querySelector('#cat-group');
-    CATEGORIES.forEach((cat) => {
-      catGroup.innerHTML += `<label class="cat-opt"><input type="radio" name="category" value="${cat}"> ${cat}</label>`;
-    });
     bindRadioGroup(root);
 
-    root.querySelector('#expense-form').addEventListener('submit', async (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      const category = fd.get('category');
-      if (!category) {
+      if (!fd.get('category')) {
         alert('Please select a category.');
         return;
       }
       try {
         await api.createExpense({
           expense_date: fd.get('expense_date'),
-          category,
+          category: fd.get('category'),
           description: fd.get('description'),
           amount: fd.get('amount'),
           notes: fd.get('notes'),
         });
         e.target.reset();
         e.target.querySelector('[name="expense_date"]').value = todayISO();
-        root.querySelectorAll('.cat-opt').forEach((l) => l.classList.remove('selected'));
-        await loadExpenses(root);
+        root.querySelectorAll('.option-chip').forEach((l) => l.classList.remove('selected'));
+        await loadExpenses(totalSlot, list);
       } catch (err) {
         alert('Failed to add expense.');
         console.error(err);
       }
     });
 
-    await loadExpenses(root);
+    await loadExpenses(totalSlot, list);
   },
   unmount() {},
 };
 
-async function loadExpenses(root) {
-  const list = root.querySelector('#expenses-list');
-  const totalEl = root.querySelector('#expenses-total');
+async function loadExpenses(totalSlot, list) {
+  list.innerHTML = '';
+  list.appendChild(LoadingState());
   try {
     const expenses = await api.getExpenses() || [];
     const total = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    totalEl.innerHTML = expenses.length
-      ? `<div class="total-bar"><span class="label">Total Expenses</span><span class="amount">$${fmtPrice(total)}</span></div>`
-      : '';
-
+    totalSlot.innerHTML = '';
+    if (expenses.length) {
+      totalSlot.appendChild(HighlightBar({ label: 'Total Expenses', amount: `$${fmtPrice(total)}`, tone: 'danger' }));
+    }
     list.innerHTML = '';
     if (!expenses.length) {
       list.appendChild(EmptyState('No expenses yet.'));
       return;
     }
-
     expenses.forEach((exp) => {
-      const card = document.createElement('div');
-      card.className = 'expense-card';
-      card.innerHTML = `
-        <div class="expense-row">
-          <div class="expense-info">
-            <div class="expense-desc">${escapeHtml(exp.description || '(no description)')}</div>
-            <div class="expense-meta">
-              ${exp.category ? `<span class="expense-cat">${escapeHtml(exp.category)}</span>` : ''}
-              ${escapeHtml(exp.expense_date || '')}
-              ${exp.notes ? ` · ${escapeHtml(exp.notes)}` : ''}
-            </div>
-          </div>
-          <div class="expense-actions">
-            <div class="expense-amount">$${fmtPrice(exp.amount)}</div>
-            <button type="button" class="expense-delete" aria-label="Delete">✕</button>
-          </div>
-        </div>`;
-      card.querySelector('.expense-delete')?.addEventListener('click', async () => {
+      list.appendChild(ExpenseItem(exp, async () => {
         if (!confirm('Delete this expense?')) return;
         try {
           await api.deleteExpense(exp.id);
-          await loadExpenses(root);
-        } catch (err) {
+          await loadExpenses(totalSlot, list);
+        } catch {
           alert('Failed to delete.');
-          console.error(err);
         }
-      });
-      list.appendChild(card);
+      }));
     });
   } catch (err) {
     list.innerHTML = '';

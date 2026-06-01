@@ -1,0 +1,20 @@
+.action-bar {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.action-bar--bordered {
+  border-top: 1px solid var(--color-surface-alt);
+  padding-top: var(--space-md);
+}
+
+.action-bar .btn {
+  flex: 1 1 calc(50% - 4px);
+  font-size: var(--font-size-base);
+  padding: 10px var(--space-sm);
+}
+
+.action-bar a.btn {
+  text-align: center;
+}

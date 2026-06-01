@@ -1,0 +1,52 @@
+.card-banner {
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-md);
+  padding: 10px var(--space-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.card-banner--primary {
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.card-banner--primary a {
+  color: var(--color-surface);
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-banner--primary svg {
+  width: 14px;
+  height: 14px;
+  fill: rgba(255, 255, 255, 0.75);
+  flex-shrink: 0;
+}
+
+.highlight-bar {
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-lg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-surface);
+}
+
+.highlight-bar--danger {
+  background: var(--color-danger);
+}
+
+.highlight-bar__label {
+  font-size: var(--font-size-base);
+  opacity: 0.85;
+}
+
+.highlight-bar__amount {
+  font-size: var(--font-size-xxl);
+}

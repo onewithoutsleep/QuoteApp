@@ -1,0 +1,130 @@
+.list-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  margin-bottom: var(--space-sm);
+  overflow: hidden;
+}
+
+.list-card--spaced {
+  margin-bottom: var(--space-lg);
+}
+
+.list-card-row {
+  padding: 14px var(--space-lg);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  align-items: flex-start;
+}
+
+.list-card-row--center {
+  align-items: center;
+}
+
+.list-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-card-aside {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.list-card-aside--stack {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.item-title {
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-lg);
+  margin-bottom: 2px;
+}
+
+.item-title--md {
+  font-size: var(--font-size-md);
+}
+
+.item-meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.item-meta--base {
+  font-size: var(--font-size-base);
+  color: #555555;
+}
+
+.item-notes {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin-top: var(--space-xs);
+}
+
+.text-success {
+  color: var(--color-success);
+  font-weight: var(--font-weight-bold);
+}
+
+.link-primary {
+  font-size: var(--font-size-base);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.link-primary--block {
+  display: block;
+  margin-bottom: var(--space-xs);
+}
+
+.amount {
+  font-size: 17px;
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+  color: #222222;
+}
+
+.amount--danger {
+  color: var(--color-danger);
+}
+
+.group-heading {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-xs);
+  border-bottom: 2px solid var(--color-primary-light);
+}
+
+.card-section {
+  border-top: 1px solid var(--color-surface-alt);
+  margin-top: var(--space-md);
+  padding-top: 10px;
+}
+
+.card-section__label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-sm);
+}
+
+.card-divider-top {
+  border-top: 1px solid var(--color-surface-alt);
+  padding-top: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.card-body-pad {
+  padding: 14px var(--space-lg);
+}
