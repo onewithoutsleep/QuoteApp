@@ -29,6 +29,7 @@ export const bookingsPage = {
       rebuildByDate();
       buildStrip(root, navigate);
       renderBookings(root, navigate);
+      setupSwipe(root, navigate)
     } catch (err) {
       root.querySelector('#bookingsList').innerHTML = '<p class="empty-msg">Failed to load bookings.</p>';
       console.error(err);
@@ -244,4 +245,32 @@ function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
+}
+
+// Add this function
+function setupSwipe(root, navigate) {
+  let startX = 0;
+  let startY = 0;
+
+  root.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  root.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+
+    // Ignore mostly-vertical swipes (scrolling)
+    if (Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 40) return;
+
+    // Only act if a date is active; fall back to today
+    const base = activeDate || todayStr;
+    const d = new Date(base);
+    d.setDate(d.getDate() + (dx < 0 ? 1 : -1));
+    activeDate = d.toISOString().slice(0, 10);
+
+    buildStrip(root, navigate);
+    renderBookings(root, navigate);
+  }, { passive: true });
 }
