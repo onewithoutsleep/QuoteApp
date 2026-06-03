@@ -2,109 +2,212 @@ import * as api from '../api.js';
 import { renderNav } from '../components/nav.js';
 import { fmtPrice, time12, fmtPhone, fmtDate, phoneDigits, handlePhone } from '../utils.js';
 
-let servicesRaw = [];
-let byDate = {};
-let activeDate = null;
-let todayStr = '';
-let monthViewActive = false;
-let activeMonth = null; // { year, month } for month view
-const today = new Date();
+// ─── STATE MANAGEMENT ────────────────────────────────────────────────────────
+const state = {
+  servicesRaw: [],
+  byDate: {},
+  activeDate: null,
+  todayStr: '',
+  monthViewActive: false,
+  activeMonth: null, // { year, month }
+};
 
+// ─── LIFECYCLE ───────────────────────────────────────────────────────────────
 export const bookingsPage = {
   async mount({ root, slots, navigate }) {
     renderNav(slots.nav, 'bookings');
+    
+    const today = new Date();
     today.setHours(0, 0, 0, 0);
-    todayStr = today.toISOString().slice(0, 10);
-    activeDate = todayStr;
-    activeMonth = { year: today.getFullYear(), month: today.getMonth() };
+    state.todayStr = today.toISOString().slice(0, 10);
+    state.activeDate = state.todayStr;
+    state.activeMonth = { year: today.getFullYear(), month: today.getMonth() };
 
-    root.innerHTML = `
-      <div class="container bookings-page">
-        <div class="cal-strip-wrap">
-          
-          <div class="cal-header-row">
-            <div class="cal-strip" id="calStrip"></div>
-          </div>
-          <div class="cal-month-view" id="calMonthView" style="display:none;"></div>
-        </div>
-        <button type="button" class="month-toggle-btn" id="monthToggleBtn" title="Month view">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </button>
-        <h2 style="margin-top:0;">Bookings</h2>
-        <div id="bookingsList">Loading…</div>
-      </div>`;
+    // Initial Shell Layout
+    root.innerHTML = BaseLayout();
 
+    // Event Listeners
     root.querySelector('#monthToggleBtn').addEventListener('click', () => {
-      monthViewActive = !monthViewActive;
+      state.monthViewActive = !state.monthViewActive;
       toggleCalView(root, navigate);
     });
 
     try {
-      servicesRaw = await api.getBookings() || [];
-      rebuildByDate();
-      buildStrip(root, navigate);
-      renderBookings(root, navigate);
-      setupSwipe(root, navigate);
+      state.servicesRaw = await api.getBookings() || [];
+      rebuildDataMappings();
+      renderCalendarStrip(root, navigate);
+      renderBookingsList(root, navigate);
+      setupSwipeGestures(root, navigate);
     } catch (err) {
-      root.querySelector('#bookingsList').innerHTML = '<p class="empty-msg">Failed to load bookings.</p>';
+      root.querySelector('#bookingsList').innerHTML = EmptyState('Failed to load bookings. Please try again.');
       console.error(err);
     }
   },
   unmount() {
-    servicesRaw = [];
-    byDate = {};
-    monthViewActive = false;
+    state.servicesRaw = [];
+    state.byDate = {};
+    state.monthViewActive = false;
   },
 };
 
-function rebuildByDate() {
-  byDate = {};
-  servicesRaw.forEach((s) => {
+function rebuildDataMappings() {
+  state.byDate = {};
+  state.servicesRaw.forEach((s) => {
     const d = s.service_date || 'no-date';
-    if (!byDate[d]) byDate[d] = [];
-    byDate[d].push(s);
+    if (!state.byDate[d]) state.byDate[d] = [];
+    state.byDate[d].push(s);
   });
 }
 
-// ─── Calendar strip ───────────────────────────────────────────────────────────
+// ─── MAIN STRUCTURAL LAYOUTS ─────────────────────────────────────────────────
 
-function buildStrip(root, navigate) {
+function BaseLayout() {
+  return `
+    <div class="container bookings-page">
+      <div class="cal-strip-wrap">
+        <div class="cal-header-row">
+          <div class="cal-strip" id="calStrip"></div>
+          <button type="button" class="month-toggle-btn" id="monthToggleBtn" title="Toggle Month View">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </button>
+        </div>
+        <div class="cal-month-view" id="calMonthView" style="display:none;"></div>
+      </div>
+      <h2>Bookings</h2>
+      <div id="bookingsList">
+        <div class="empty-state"><p>Loading...</p></div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── REUSABLE UI SUB-COMPONENTS ──────────────────────────────────────────────
+
+function BookingCard(s, navigate) {
+  const card = document.createElement('div');
+  card.className = 'booking-card';
+  
+  const price = s.price != null ? fmtPrice(s.price) : null;
+  const amtPaid = s.amount_paid != null ? fmtPrice(s.amount_paid) : null;
+  const fPhone = fmtPhone(s.phone);
+  const digits = phoneDigits(s.phone);
+  const mapsUrl = s.address ? `https://maps.apple.com/?q=${encodeURIComponent(s.address)}` : '#';
+  const isDone = s.completed;
+
+  card.innerHTML = `
+    <div class="booking-row">
+      <div class="booking-info">
+        <div class="booking-customer-row">
+          ${s.service_time ? `<span class="booking-time">${time12(s.service_time)}</span>` : ''}
+          <div class="booking-customer">${escapeHtml(s.customer || 'Unknown Customer')}</div>
+        </div>
+        
+        <a class="booking-address" href="${mapsUrl}" target="_blank" rel="noopener">
+          ${escapeHtml(s.address || 'No address provided')}
+        </a>
+        ${fPhone ? `<a class="booking-phone" href="tel:${digits}">${fPhone}</a>` : ''}
+        
+        <div class="booking-meta">
+          ${s.type ? `<span class="bk-badge bk-type">${capitalize(s.type)}</span>` : ''}
+          ${s.windows ? `<span class="bk-badge bk-type">${s.windows} Windows</span>` : ''}
+          ${isDone && !s.paid ? '<span class="bk-badge bk-unpaid">Pending Payment</span>' : ''}
+          ${s.paid && amtPaid ? `<span class="bk-paid">Paid $${amtPaid}</span>` : ''}
+          ${s.completed && s.duration_minutes ? `<span class="bk-badge bk-duration">${s.duration_minutes} min</span>` : ''}
+        </div>
+        
+        ${s.notes ? `<div class="booking-notes">"${escapeHtml(s.notes)}"</div>` : ''}
+      </div>
+      
+      <div class="booking-actions">
+        ${price ? `<div class="booking-price">$${price}</div>` : ''}
+        <button type="button" class="complete-btn ${isDone ? 'is-done' : 'not-done'}">
+          ${isDone ? 'Completed' : 'Mark Done'}
+        </button>
+        <div class="action-buttons">
+          <button type="button" class="icon-btn edit-link--map" title="Show on Map">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+          </button>
+          <button type="button" class="icon-btn edit-link" title="Edit Booking">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const phoneEl = card.querySelector('.booking-phone');
+  if (phoneEl) phoneEl.addEventListener('click', (e) => handlePhone(e, s.phone, digits));
+  
+  card.querySelector('.booking-address')?.addEventListener('click', (e) => e.stopPropagation());
+  card.querySelector('.complete-btn')?.addEventListener('click', () => openCompleteSheet(s));
+  card.querySelector('.edit-link--map')?.addEventListener('click', () => navigate(`#/map?highlight=${s.house_id || ''}`));
+  card.querySelector('.edit-link')?.addEventListener('click', () => navigate(`#/service/${s.id}/edit`));
+
+  return card;
+}
+
+function EmptyState(message) {
+  return `
+    <div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>
+      </svg>
+      <p>${message}</p>
+    </div>`;
+}
+
+// ─── RENDERING & SYSTEM LOGIC ────────────────────────────────────────────────
+
+function renderCalendarStrip(root, navigate) {
   const strip = root.querySelector('#calStrip');
   strip.innerHTML = '';
   const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const today = new Date(state.todayStr + 'T00:00:00');
+  
   for (let i = -30; i <= 60; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     const ds = d.toISOString().slice(0, 10);
+    const hasBookings = !!state.byDate[ds];
+    
     const el = document.createElement('div');
-    el.className = 'cal-day' + (ds === todayStr ? ' today' : '') + (ds === activeDate ? ' active' : '');
+    el.className = `cal-day ${ds === state.todayStr ? 'today' : ''} ${ds === state.activeDate ? 'active' : ''}`;
     el.dataset.date = ds;
-    const hasBookings = !!byDate[ds];
+    
     el.innerHTML = `
       <div class="dow">${DOW[d.getDay()]}</div>
       <div class="dom">${d.getDate()}</div>
-      ${hasBookings ? '<div class="dot"></div>' : '<div class="cal-spacer"></div>'}`;
+      ${hasBookings ? '<div class="dot"></div>' : '<div class="cal-spacer"></div>'}
+    `;
+    
     el.addEventListener('click', () => {
-      activeDate = activeDate === ds ? null : ds;
-      buildStrip(root, navigate);
-      renderBookings(root, navigate);
+      state.activeDate = state.activeDate === ds ? null : ds;
+      renderCalendarStrip(root, navigate);
+      renderBookingsList(root, navigate);
     });
+    
     strip.appendChild(el);
   }
-  const scrollTarget = strip.querySelector(`[data-date="${activeDate || todayStr}"]`);
-  if (scrollTarget) setTimeout(() => scrollTarget.scrollIntoView({ inline: 'center', behavior: 'smooth' }), 50);
+
+  // FIXED: Precise horizontal-only scroll handling to eliminate vertical alignment jumps
+  const scrollTarget = strip.querySelector(`[data-date="${state.activeDate || state.todayStr}"]`);
+  if (scrollTarget) {
+    setTimeout(() => {
+      const leftOffset = scrollTarget.offsetLeft - (strip.clientWidth / 2) + (scrollTarget.clientWidth / 2);
+      strip.scrollTo({ left: leftOffset, behavior: 'smooth' });
+    }, 50);
+  }
 }
 
-// ─── Month view ───────────────────────────────────────────────────────────────
-
-function buildMonthView(root, navigate) {
+function renderMonthView(root, navigate) {
   const container = root.querySelector('#calMonthView');
   container.innerHTML = '';
 
-  const { year, month } = activeMonth;
+  const { year, month } = state.activeMonth;
   const DOW_SHORT = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-  // Header with prev/next month arrows
   const header = document.createElement('div');
   header.className = 'month-header';
   const monthName = new Date(year, month, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -115,21 +218,20 @@ function buildMonthView(root, navigate) {
   container.appendChild(header);
 
   header.querySelector('#mvPrev').addEventListener('click', () => {
-    let m = activeMonth.month - 1;
-    let y = activeMonth.year;
+    let m = state.activeMonth.month - 1;
+    let y = state.activeMonth.year;
     if (m < 0) { m = 11; y--; }
-    activeMonth = { year: y, month: m };
-    buildMonthView(root, navigate);
+    state.activeMonth = { year: y, month: m };
+    renderMonthView(root, navigate);
   });
   header.querySelector('#mvNext').addEventListener('click', () => {
-    let m = activeMonth.month + 1;
-    let y = activeMonth.year;
+    let m = state.activeMonth.month + 1;
+    let y = state.activeMonth.year;
     if (m > 11) { m = 0; y++; }
-    activeMonth = { year: y, month: m };
-    buildMonthView(root, navigate);
+    state.activeMonth = { year: y, month: m };
+    renderMonthView(root, navigate);
   });
 
-  // Day-of-week labels
   const dowRow = document.createElement('div');
   dowRow.className = 'month-dow-row';
   DOW_SHORT.forEach((d) => {
@@ -140,14 +242,12 @@ function buildMonthView(root, navigate) {
   });
   container.appendChild(dowRow);
 
-  // Day grid
   const grid = document.createElement('div');
   grid.className = 'month-grid';
 
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // Leading empty cells
   for (let i = 0; i < firstDay; i++) {
     const empty = document.createElement('div');
     empty.className = 'month-day month-day--empty';
@@ -156,26 +256,20 @@ function buildMonthView(root, navigate) {
 
   for (let d = 1; d <= daysInMonth; d++) {
     const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const isToday = ds === todayStr;
-    const isActive = ds === activeDate;
-    const hasBookings = !!byDate[ds];
+    const isToday = ds === state.todayStr;
+    const isActive = ds === state.activeDate;
+    const hasBookings = !!state.byDate[ds];
 
     const cell = document.createElement('div');
-    cell.className = 'month-day' +
-      (isToday ? ' month-day--today' : '') +
-      (isActive ? ' month-day--active' : '');
+    cell.className = `month-day ${isToday ? 'month-day--today' : ''} ${isActive ? 'month-day--active' : ''}`;
     cell.innerHTML = `
       <span class="month-day-num">${d}</span>
       ${hasBookings ? '<span class="month-dot"></span>' : ''}`;
 
     cell.addEventListener('click', () => {
-      // Switch to strip/day view focused on this date
-      activeDate = ds;
-      activeMonth = { year, month };
-      monthViewActive = false;
+      state.activeDate = ds;
+      state.monthViewActive = false;
       toggleCalView(root, navigate);
-      buildStrip(root, navigate);
-      renderBookings(root, navigate);
     });
 
     grid.appendChild(cell);
@@ -184,69 +278,60 @@ function buildMonthView(root, navigate) {
   container.appendChild(grid);
 }
 
-// ─── Toggle between strip and month view ─────────────────────────────────────
-
 function toggleCalView(root, navigate) {
   const strip = root.querySelector('#calStrip');
   const monthView = root.querySelector('#calMonthView');
   const btn = root.querySelector('#monthToggleBtn');
 
-  if (monthViewActive) {
-    // Sync activeMonth to wherever activeDate currently is
-    if (activeDate) {
-      const d = new Date(activeDate);
-      activeMonth = { year: d.getFullYear(), month: d.getMonth() };
+  if (state.monthViewActive) {
+    if (state.activeDate) {
+      const d = new Date(state.activeDate + 'T00:00:00');
+      state.activeMonth = { year: d.getFullYear(), month: d.getMonth() };
     }
     strip.style.display = 'none';
     monthView.style.display = '';
-    buildMonthView(root, navigate);
+    renderMonthView(root, navigate);
     btn.classList.add('month-toggle-btn--active');
   } else {
     strip.style.display = '';
     monthView.style.display = 'none';
-    buildStrip(root, navigate);
+    renderCalendarStrip(root, navigate);
+    renderBookingsList(root, navigate);
     btn.classList.remove('month-toggle-btn--active');
   }
 }
 
-// ─── Bookings list with animated transition ───────────────────────────────────
-
-/**
- * direction: 'left' | 'right' | null
- * When direction is given the current list slides out, then the new content
- * slides in from the opposite side.  When null the list re-renders instantly
- * (used for non-swipe updates like tapping the strip).
- */
-function renderBookings(root, navigate, direction = null) {
+function renderBookingsList(root, navigate, direction = null) {
   const list = root.querySelector('#bookingsList');
 
   const doRender = () => {
-    let datesToShow;
-    if (activeDate) {
-      datesToShow = [activeDate];
-    } else {
-      datesToShow = Object.keys(byDate).filter((d) => d !== 'no-date').sort();
-      if (byDate['no-date']) datesToShow.push('no-date');
-    }
+    let datesToShow = state.activeDate ? [state.activeDate] : Object.keys(state.byDate).filter(d => d !== 'no-date').sort();
+    if (!state.activeDate && state.byDate['no-date']) datesToShow.push('no-date');
 
     if (!datesToShow.length) {
-      list.innerHTML = '<div class="no-bookings-day">No bookings yet.</div>';
+      list.innerHTML = EmptyState('No bookings scheduled yet.');
       return;
     }
 
     list.innerHTML = '';
+    let foundAny = false;
+
     datesToShow.forEach((ds) => {
-      const items = byDate[ds] || [];
-      if (!items.length) {
-        if (activeDate) list.innerHTML = '<div class="no-bookings-day">No bookings on this day.</div>';
-        return;
-      }
+      const items = state.byDate[ds] || [];
+      if (!items.length) return;
+      
+      foundAny = true;
       const group = document.createElement('div');
       group.className = 'booking-date-group';
-      group.innerHTML = `<div class="booking-date-header">${ds === 'no-date' ? 'No Date' : fmtDate(ds)}</div>`;
-      items.forEach((s) => group.appendChild(buildBookingCard(s, navigate)));
+      group.innerHTML = `<div class="booking-date-header">${ds === 'no-date' ? 'Unscheduled' : fmtDate(ds)}</div>`;
+      
+      items.forEach((s) => group.appendChild(BookingCard(s, navigate)));
       list.appendChild(group);
     });
+
+    if (!foundAny && state.activeDate) {
+      list.innerHTML = EmptyState('No bookings scheduled on this day.');
+    }
   };
 
   if (!direction) {
@@ -254,88 +339,58 @@ function renderBookings(root, navigate, direction = null) {
     return;
   }
 
-  // Slide current content out
-  const exitDir = direction === 'left' ? '-100%' : '100%';
-  const enterDir = direction === 'left' ? '100%' : '-100%';
+  const exitDir = direction === 'left' ? '-15px' : '15px';
+  const enterDir = direction === 'left' ? '15px' : '-15px';
 
-  list.style.transition = 'transform 0.28s cubic-bezier(0.4,0,0.2,1), opacity 0.28s ease';
+  list.style.transition = 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease';
   list.style.transform = `translateX(${exitDir})`;
   list.style.opacity = '0';
 
-  const afterExit = () => {
+  list.addEventListener('transitionend', function afterExit() {
     list.removeEventListener('transitionend', afterExit);
-    // Snap to enter position (no transition)
     list.style.transition = 'none';
     list.style.transform = `translateX(${enterDir})`;
-    list.style.opacity = '0';
-
+    
     doRender();
-
-    // Force reflow so the browser registers the starting position
-    // eslint-disable-next-line no-unused-expressions
-    list.offsetHeight;
-
-    // Slide in
-    list.style.transition = 'transform 0.28s cubic-bezier(0.4,0,0.2,1), opacity 0.28s ease';
+    list.offsetHeight; // Force Layout System layout recalculation
+    
+    list.style.transition = 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease';
     list.style.transform = 'translateX(0)';
     list.style.opacity = '1';
-  };
-
-  list.addEventListener('transitionend', afterExit, { once: true });
+  }, { once: true });
 }
 
-// ─── Booking card ─────────────────────────────────────────────────────────────
+// ─── SWIPE GESTURES MODULE ───────────────────────────────────────────────────
 
-function buildBookingCard(s, navigate) {
-  const card = document.createElement('div');
-  card.className = 'booking-card';
-  const price = s.price != null ? fmtPrice(s.price) : null;
-  const amtPaid = s.amount_paid != null ? fmtPrice(s.amount_paid) : null;
-  const fPhone = fmtPhone(s.phone);
-  const digits = phoneDigits(s.phone);
-  const mapsUrl = s.address ? `https://maps.apple.com/?q=${encodeURIComponent(s.address)}` : '#';
-  const doneClass = s.completed ? 'is-done' : 'not-done';
-  const doneLabel = s.completed ? 'Done' : 'Mark Done';
+function setupSwipeGestures(root, navigate) {
+  let startX = 0, startY = 0;
 
-  card.innerHTML = `
-    <div class="booking-row">
-      <div class="booking-info">
-        <div class="booking-customer">
-          ${s.service_time ? `<span class="bk-badge bk-time">${time12(s.service_time)}</span>` : ''}
-          ${escapeHtml(s.customer || '')}
-        </div>
-        <a class="booking-address" href="${mapsUrl}" target="_blank" rel="noopener">${escapeHtml(s.address || '')}</a>
-        ${fPhone ? `<a class="booking-phone" href="tel:${digits}">${fPhone}</a>` : ''}
-        <div class="booking-meta" style="margin-top:4px;">
-          ${s.type ? `<span class="bk-badge bk-type">${capitalize(s.type)}</span>` : ''}
-          ${s.windows ? `<span class="bk-badge bk-muted">${s.windows} windows</span>` : ''}
-          ${s.completed && !s.paid ? '<span class="bk-badge bk-unpaid">Unpaid</span>' : ''}
-          ${s.paid && amtPaid ? `<span class="bk-paid">Paid $${amtPaid}</span>` : ''}
-          ${s.completed && s.duration_minutes ? `<span class="bk-badge bk-duration">${s.duration_minutes} min</span>` : ''}
-        </div>
-        ${s.notes ? `<div class="booking-notes">${escapeHtml(s.notes)}</div>` : ''}
-      </div>
-      <div class="booking-actions">
-        ${price ? `<div class="booking-price">$${price}</div>` : ''}
-        <button type="button" class="complete-btn ${doneClass}">${doneLabel}</button>
-        <button type="button" class="edit-link edit-link--map" title="Show on map">📍</button>
-        <button type="button" class="edit-link" title="Edit">✎</button>
-      </div>
-    </div>`;
+  root.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
 
-  const phoneEl = card.querySelector('.booking-phone');
-  if (phoneEl) {
-    phoneEl.addEventListener('click', (e) => handlePhone(e, s.phone, digits));
-  }
-  card.querySelector('.booking-address')?.addEventListener('click', (e) => e.stopPropagation());
-  card.querySelector('.complete-btn')?.addEventListener('click', () => openCompleteSheet(s));
-  card.querySelector('.edit-link--map')?.addEventListener('click', () => navigate(`#/map?highlight=${s.house_id || ''}`));
-  card.querySelector('.edit-link:not(.edit-link--map)')?.addEventListener('click', () => navigate(`#/service/${s.id}/edit`));
+  root.addEventListener('touchend', (e) => {
+    // block gesture calculation if month view is deployed
+    if (state.monthViewActive) return;
 
-  return card;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+
+    if (Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 50) return;
+
+    const direction = dx < 0 ? 'left' : 'right';
+    const base = state.activeDate || state.todayStr;
+    const d = new Date(base + 'T00:00:00');
+    d.setDate(d.getDate() + (direction === 'left' ? 1 : -1));
+    
+    state.activeDate = d.toISOString().slice(0, 10);
+    renderCalendarStrip(root, navigate);
+    renderBookingsList(root, navigate, direction);
+  }, { passive: true });
 }
 
-// ─── Complete sheet ───────────────────────────────────────────────────────────
+// ─── BOTTOM DETACHED SHEET VIEW ──────────────────────────────────────────────
 
 function openCompleteSheet(svc) {
   const sheet = document.createElement('div');
@@ -344,8 +399,8 @@ function openCompleteSheet(svc) {
   const isPaid = !!svc.paid;
   sheet.innerHTML = `
     <div class="sheet-body">
-      <div class="sheet-title">${escapeHtml(svc.customer || '')}</div>
-      <div class="sheet-address">${escapeHtml(svc.address || '')}</div>
+      <div class="sheet-title">${escapeHtml(svc.customer || 'Unknown Customer')}</div>
+      <div class="sheet-address">${escapeHtml(svc.address || 'No Address Listed')}</div>
       <div class="toggle-row">
         <span class="toggle-label">Mark as Complete</span>
         <label class="toggle-switch">
@@ -368,7 +423,7 @@ function openCompleteSheet(svc) {
           <input type="number" id="sAmtPaid" class="sheet-input" step="0.01" value="${svc.amount_paid || ''}">
         </div>
       </div>
-      <button type="button" class="sheet-save-btn">Save</button>
+      <button type="button" class="sheet-save-btn">Save Changes</button>
       <button type="button" class="sheet-cancel-btn">Cancel</button>
     </div>`;
 
@@ -377,12 +432,8 @@ function openCompleteSheet(svc) {
   const paidEl = sheet.querySelector('#sPaid');
   const amtSec = sheet.querySelector('#sAmtSection');
 
-  completedEl?.addEventListener('change', () => {
-    paySec.style.display = completedEl.checked ? '' : 'none';
-  });
-  paidEl?.addEventListener('change', () => {
-    amtSec.style.display = paidEl.checked ? '' : 'none';
-  });
+  completedEl?.addEventListener('change', () => { paySec.style.display = completedEl.checked ? '' : 'none'; });
+  paidEl?.addEventListener('change', () => { amtSec.style.display = paidEl.checked ? '' : 'none'; });
 
   sheet.querySelector('.sheet-cancel-btn')?.addEventListener('click', () => sheet.remove());
   sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheet.remove(); });
@@ -395,7 +446,7 @@ function openCompleteSheet(svc) {
     form.append('duration_minutes', sheet.querySelector('#sDuration')?.value || '');
     try {
       await api.completeService(svc.id, form);
-      servicesRaw.forEach((s) => {
+      state.servicesRaw.forEach((s) => {
         if (s.id === svc.id) {
           s.completed = completedEl.checked ? 1 : 0;
           s.paid = paidEl?.checked ? 1 : 0;
@@ -403,56 +454,25 @@ function openCompleteSheet(svc) {
           s.duration_minutes = form.get('duration_minutes') ? parseInt(form.get('duration_minutes'), 10) : null;
         }
       });
-      rebuildByDate();
+      rebuildDataMappings();
       sheet.remove();
+      
       const root = document.querySelector('.bookings-page')?.closest('#page-root');
       if (root) {
-        buildStrip(root, (h) => { location.hash = h; });
-        renderBookings(root, (h) => { location.hash = h; });
+        renderCalendarStrip(root, (h) => { location.hash = h; });
+        renderBookingsList(root, (h) => { location.hash = h; });
       }
     } catch {
-      alert('Error saving. Please try again.');
+      alert('Error saving metrics. Please try again.');
     }
   });
 
   document.body.appendChild(sheet);
 }
 
-// ─── Swipe ────────────────────────────────────────────────────────────────────
+// ─── UTILITIES ───────────────────────────────────────────────────────────────
 
-function setupSwipe(root, navigate) {
-  let startX = 0;
-  let startY = 0;
-
-  root.addEventListener('touchstart', (e) => {
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-  }, { passive: true });
-
-  root.addEventListener('touchend', (e) => {
-    const dx = e.changedTouches[0].clientX - startX;
-    const dy = e.changedTouches[0].clientY - startY;
-
-    // Ignore mostly-vertical swipes (scrolling)
-    if (Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 40) return;
-
-    const direction = dx < 0 ? 'left' : 'right';
-    const base = activeDate || todayStr;
-    const d = new Date(base);
-    d.setDate(d.getDate() + (direction === 'left' ? 1 : -1));
-    activeDate = d.toISOString().slice(0, 10);
-
-    buildStrip(root, navigate);
-    renderBookings(root, navigate, direction);
-  }, { passive: true });
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function capitalize(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
-}
-
+function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s;
