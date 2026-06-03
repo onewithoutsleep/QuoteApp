@@ -27,7 +27,7 @@ export const bookingsPage = {
     try {
       servicesRaw = await api.getBookings() || [];
       rebuildByDate();
-      buildStrip(root);
+      buildStrip(root, navigate);
       renderBookings(root, navigate);
     } catch (err) {
       root.querySelector('#bookingsList').innerHTML = '<p class="empty-msg">Failed to load bookings.</p>';
@@ -49,7 +49,7 @@ function rebuildByDate() {
   });
 }
 
-function buildStrip(root) {
+function buildStrip(root, navigate) {
   const strip = root.querySelector('#calStrip');
   strip.innerHTML = '';
   const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -67,7 +67,7 @@ function buildStrip(root) {
       ${hasBookings ? '<div class="dot"></div>' : '<div class="cal-spacer"></div>'}`;
     el.addEventListener('click', () => {
       activeDate = activeDate === ds ? null : ds;
-      buildStrip(root);
+      buildStrip(root, navigate);
       renderBookings(root, navigate);
     });
     strip.appendChild(el);
@@ -225,7 +225,7 @@ function openCompleteSheet(svc) {
       sheet.remove();
       const root = document.querySelector('.bookings-page')?.closest('#page-root');
       if (root) {
-        buildStrip(root);
+        buildStrip(root, (h) => { location.hash = h; });
         renderBookings(root, (h) => { location.hash = h; });
       }
     } catch {
