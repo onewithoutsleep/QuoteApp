@@ -363,20 +363,25 @@ function renderBookingsList(root, navigate, direction = null) {
 // ─── SWIPE GESTURES MODULE ───────────────────────────────────────────────────
 
 function setupSwipeGestures(root, navigate) {
+  // Target the inner page wrapper instead of the persistent root
+  const pageContainer = root.querySelector('.bookings-page');
+  if (!pageContainer) return;
+
   let startX = 0, startY = 0;
 
-  root.addEventListener('touchstart', (e) => {
+  pageContainer.addEventListener('touchstart', (e) => {
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
   }, { passive: true });
 
-  root.addEventListener('touchend', (e) => {
+  pageContainer.addEventListener('touchend', (e) => {
     // block gesture calculation if month view is deployed
     if (state.monthViewActive) return;
 
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
 
+    // Ignore diagonal scrolls or short accidental micro-swipes
     if (Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 50) return;
 
     const direction = dx < 0 ? 'left' : 'right';
