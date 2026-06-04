@@ -252,6 +252,12 @@ function initMap(el, data, highlightId, navigate) {
   knockBanner.textContent = 'Knock mode — tap a house';
   document.body.appendChild(knockBanner);
 
+  /* ── Move banner ───────────────────────────────────────── */
+  const moveBanner = document.createElement('div');
+  moveBanner.className = 'map-move-banner';
+  moveBanner.textContent = 'Move mode — tap a new location';
+  document.body.appendChild(moveBanner);
+
   /* ── Controls ───────────────────────────────────────────── */
   const controls = document.createElement('div');
   controls.className = 'map-controls';
@@ -317,6 +323,7 @@ function initMap(el, data, highlightId, navigate) {
     controls.remove();
     legend.remove();
     knockBanner.remove();
+    moveBanner.remove();
   });
 
   /* ── Geolocation watch ──────────────────────────────────── */
@@ -361,14 +368,29 @@ function initMap(el, data, highlightId, navigate) {
       if (result?.status === 'ok') marker.setLatLng([lat, lng]);
     } catch (err) { console.error('Move error:', err); }
     moveMode = false; selectedMarker = null; selectedHouseId = null;
+    moveBanner.classList.remove('visible');
   }
 
   function toggleMoveMode(houseId, marker) {
+    // toggling off
     if (moveMode && selectedHouseId === houseId) {
-      moveMode = false; selectedMarker = null; selectedHouseId = null;
-      map.closePopup(); return;
+      moveMode = false;
+      selectedMarker = null;
+      selectedHouseId = null;
+
+      moveBanner.classList.remove('visible');
+      map.closePopup();
+      return;
     }
-    moveMode = true; selectedMarker = marker; selectedHouseId = houseId;
+
+    // toggling on
+    moveMode = true;
+    selectedMarker = marker;
+    selectedHouseId = houseId;
+
+    moveBanner.classList.add('visible');
+    knockBanner.classList.remove('visible'); // optional but recommended
+
     map.closePopup();
   }
 

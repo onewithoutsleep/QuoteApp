@@ -242,91 +242,122 @@ def get_db(username=None):
 
 def _migrate(conn):
     """
-    Runs two migrations in order:
-
-    Migration 1 (old address-based schema):
-      If the old schema exists (quotes.address column, houses.quote_id column),
-      move address data into houses and wire up house_id on quotes, then drop
-      the stale columns via table rebuild.
-
-    Migration 2 (drop UNIQUE constraint on houses.address):
-      If houses.address still carries a UNIQUE constraint (detectable via
-      sqlite_master), rebuild the table without it so that two nearby houses
-      can share the same geocoded address string.
+    Runs database migrations safely while handling SQLite limitations.
     """
-    quote_cols = [r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()]
-    house_cols = [r[1] for r in conn.execute("PRAGMA table_info(houses)").fetchall()]
+    # 1. Turn off Foreign Keys at the connection level before any transactions start
+    conn.execute("PRAGMA foreign_keys = OFF")
 
-    need_quote_migration = "address" in quote_cols and "house_id" not in quote_cols
-    need_house_migration  = "quote_id" in house_cols
+    try:
+        quote_cols = [r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()]
+        house_cols = [r[1] for r in conn.execute("PRAGMA table_info(houses)").fetchall()]
 
-    if need_quote_migration or need_house_migration:
-        # Step 1 — ensure house_id column exists on quotes (temp nullable)
-        if "house_id" not in quote_cols:
-            conn.execute("ALTER TABLE quotes ADD COLUMN house_id INTEGER")
+        need_quote_migration = "address" in quote_cols and "house_id" not in quote_cols
+        need_house_migration  = "quote_id" in house_cols
 
-        # Step 2 — for each quote, find or create a house row and set house_id
-        rows = conn.execute("SELECT id, address FROM quotes WHERE house_id IS NULL").fetchall()
-        for q in rows:
-            addr = normalize_address(q["address"] or "")
-            if not addr:
-                addr = f"Unknown (quote {q['id']})"
+        # =====================================================================
+        # MIGRATION 1: Schema Restructuring
+        # =====================================================================
+        if need_quote_migration or need_house_migration:
+            conn.execute("BEGIN TRANSACTION")
 
-            existing = conn.execute(
-                "SELECT id FROM houses WHERE address=? COLLATE NOCASE LIMIT 1", (addr,)
-            ).fetchone()
+            if "house_id" not in quote_cols:
+                conn.execute("ALTER TABLE quotes ADD COLUMN house_id INTEGER")
 
-            if existing:
-                house_id = existing["id"]
-            else:
-                conn.execute(
-                    "INSERT INTO houses (address) VALUES (?)", (addr,)
-                )
-                house_id = conn.execute(
+            # Step 2 — Find or create houses for existing quotes
+            rows = conn.execute("SELECT id, address FROM quotes WHERE house_id IS NULL").fetchall()
+            for q in rows:
+                addr = normalize_address(q["address"] or "")
+                if not addr:
+                    addr = f"Unknown (quote {q['id']})"
+
+                existing = conn.execute(
                     "SELECT id FROM houses WHERE address=? COLLATE NOCASE LIMIT 1", (addr,)
-                ).fetchone()["id"]
+                ).fetchone()
 
-            conn.execute(
-                "UPDATE quotes SET house_id=? WHERE id=?", (house_id, q["id"])
-            )
+                if existing:
+                    house_id = existing["id"]
+                else:
+                    conn.execute("INSERT INTO houses (address) VALUES (?)", (addr,))
+                    house_id = conn.execute(
+                        "SELECT id FROM houses WHERE address=? COLLATE NOCASE LIMIT 1", (addr,)
+                    ).fetchone()["id"]
 
-        conn.commit()
+                conn.execute("UPDATE quotes SET house_id=? WHERE id=?", (house_id, q["id"]))
 
-        conn.execute("PRAGMA foreign_keys = OFF")
+            # Step 3 — Rebuild quotes without 'address' column
+            if "address" in quote_cols:
+                conn.execute("DROP TABLE IF EXISTS quotes_new")
+                conn.execute("""
+                    CREATE TABLE quotes_new (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        house_id      INTEGER NOT NULL REFERENCES houses(id),
+                        customer      TEXT,
+                        phone         TEXT,
+                        email         TEXT,
+                        windows       INTEGER,
+                        outside_price REAL,
+                        inside_price  REAL,
+                        both_price    REAL,
+                        notes         TEXT,
+                        quote_date    TEXT,
+                        found_via     TEXT
+                    )
+                """)
+                conn.execute("""
+                    INSERT INTO quotes_new (id, house_id, customer, phone, email, windows,
+                                         outside_price, inside_price, both_price, notes, quote_date, found_via)
+                    SELECT id, house_id, customer, phone, email, windows,
+                           outside_price, inside_price, both_price, notes, quote_date, found_via
+                    FROM quotes
+                """)
+                conn.execute("DROP TABLE quotes")
+                conn.execute("ALTER TABLE quotes_new RENAME TO quotes")
 
-        # Step 3 — rebuild quotes without address column
-        if "address" in quote_cols:
-            conn.execute("DROP TABLE IF EXISTS quotes_new")
-            conn.execute("""
-                CREATE TABLE quotes_new (
-                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    house_id      INTEGER NOT NULL REFERENCES houses(id),
-                    customer      TEXT,
-                    phone         TEXT,
-                    email         TEXT,
-                    windows       INTEGER,
-                    outside_price REAL,
-                    inside_price  REAL,
-                    both_price    REAL,
-                    notes         TEXT,
-                    quote_date    TEXT,
-                    found_via     TEXT
-                )
-            """)
-            conn.execute("""
-                INSERT INTO quotes_new
-                    (id, house_id, customer, phone, email, windows,
-                     outside_price, inside_price, both_price, notes, quote_date, found_via)
-                SELECT
-                    id, house_id, customer, phone, email, windows,
-                    outside_price, inside_price, both_price, notes, quote_date, found_via
-                FROM quotes
-            """)
-            conn.execute("DROP TABLE quotes")
-            conn.execute("ALTER TABLE quotes_new RENAME TO quotes")
+            # Step 4 — Rebuild houses without 'quote_id' (Preserving outcome & note if they exist)
+            if "quote_id" in house_cols:
+                has_outcome = "outcome" in house_cols
+                has_note = "note" in house_cols
+                
+                conn.execute("DROP TABLE IF EXISTS houses_new")
+                conn.execute(f"""
+                    CREATE TABLE houses_new (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        lat        REAL,
+                        lng        REAL,
+                        address    TEXT NOT NULL,
+                        knocked_at TEXT,
+                        outcome    TEXT,
+                        note       TEXT
+                    )
+                """)
+                
+                # Dynamic select to prevent crashing if outcome/note don't exist yet
+                select_cols = ["id", "lat", "lng", "address", "knocked_at"]
+                if has_outcome: select_cols.append("outcome")
+                if has_note: select_cols.append("note")
+                
+                target_cols = ["id", "lat", "lng", "address", "knocked_at"]
+                if has_outcome: target_cols.append("outcome")
+                if has_note: target_cols.append("note")
 
-        # Step 4 — rebuild houses without quote_id column
-        if "quote_id" in house_cols:
+                conn.execute(f"""
+                    INSERT INTO houses_new ({', '.join(target_cols)})
+                    SELECT {', '.join(select_cols)} FROM houses
+                """)
+                conn.execute("DROP TABLE houses")
+                conn.execute("ALTER TABLE houses_new RENAME TO houses")
+
+            conn.commit()
+
+        # =====================================================================
+        # MIGRATION 2: Drop UNIQUE constraint on houses.address
+        # =====================================================================
+        ddl_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='houses'"
+        ).fetchone()
+        
+        if ddl_row and "UNIQUE" in (ddl_row["sql"] or "").upper():
+            conn.execute("BEGIN TRANSACTION")
             conn.execute("DROP TABLE IF EXISTS houses_new")
             conn.execute("""
                 CREATE TABLE houses_new (
@@ -334,51 +365,57 @@ def _migrate(conn):
                     lat        REAL,
                     lng        REAL,
                     address    TEXT NOT NULL,
-                    knocked_at TEXT
+                    knocked_at TEXT,
+                    outcome    TEXT,
+                    note       TEXT
                 )
             """)
             conn.execute("""
-                INSERT INTO houses_new (id, lat, lng, address, knocked_at)
-                SELECT id, lat, lng, address, knocked_at FROM houses
+                INSERT INTO houses_new (id, lat, lng, address, knocked_at, outcome, note)
+                SELECT id, lat, lng, address, knocked_at,
+                       CASE WHEN typeof(outcome)='null' THEN NULL ELSE outcome END,
+                       CASE WHEN typeof(note)='null' THEN NULL ELSE note END
+                FROM houses
             """)
             conn.execute("DROP TABLE houses")
             conn.execute("ALTER TABLE houses_new RENAME TO houses")
+            conn.commit()
 
-        conn.commit()
-        conn.execute("PRAGMA foreign_keys = ON")
+        # =====================================================================
+        # POST-MIGRATION: Default missing outcomes
+        # =====================================================================
+        # Check if services table exists to avoid crash
+        services_exist = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='services'"
+        ).fetchone()
 
-    # Migration 2: drop UNIQUE constraint on houses.address if it still exists.
-    # SQLite doesn't support DROP CONSTRAINT, so we check sqlite_master and
-    # rebuild the table only when the constraint is actually present.
-    ddl_row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='houses'"
-    ).fetchone()
-    if ddl_row and "UNIQUE" in (ddl_row["sql"] or "").upper():
-        conn.execute("PRAGMA foreign_keys = OFF")
-        conn.execute("DROP TABLE IF EXISTS houses_new")
-        conn.execute("""
-            CREATE TABLE houses_new (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                lat        REAL,
-                lng        REAL,
-                address    TEXT NOT NULL,
-                knocked_at TEXT,
-                outcome    TEXT,
-                note       TEXT
+        conn.execute("BEGIN TRANSACTION")
+        
+        services_subquery = ""
+        if services_exist:
+            services_subquery = """
+            AND NOT EXISTS (
+                SELECT 1
+                FROM services s
+                JOIN quotes q ON q.id = s.quote_id
+                WHERE q.house_id = houses.id
             )
-        """)
-        conn.execute("""
-            INSERT INTO houses_new (id, lat, lng, address, knocked_at, outcome, note)
-            SELECT id, lat, lng, address, knocked_at,
-                   CASE WHEN typeof(outcome)='null' THEN NULL ELSE outcome END,
-                   CASE WHEN typeof(note)='null' THEN NULL ELSE note END
-            FROM houses
-        """)
-        conn.execute("DROP TABLE houses")
-        conn.execute("ALTER TABLE houses_new RENAME TO houses")
-        conn.commit()
-        conn.execute("PRAGMA foreign_keys = ON")
+            """
 
+        conn.execute(f"""
+            UPDATE houses
+            SET outcome = 'not_interested'
+            WHERE (outcome IS NULL OR outcome = '')
+            AND NOT EXISTS (
+                SELECT 1 FROM quotes q WHERE q.house_id = houses.id
+            )
+            {services_subquery}
+        """)
+        conn.commit()
+
+    finally:
+        # Guarantee foreign keys get turned back on even if a migration errors out
+        conn.execute("PRAGMA foreign_keys = ON")
 
 # -----------------------------
 # SETTING HELPERS
@@ -419,15 +456,16 @@ def _geocode_and_create(cursor, address):
         ).json()
         if data:
             cursor.execute(
-                "INSERT INTO houses (lat, lng, address) VALUES (?, ?, ?)",
-                (float(data[0]["lat"]), float(data[0]["lon"]), address)
+                "INSERT INTO houses (lat, lng, address, outcome) VALUES (?, ?, ?, ?)",
+                (float(data[0]["lat"]), float(data[0]["lon"]), address, "not_interested")
             )
             return cursor.execute("SELECT last_insert_rowid()").fetchone()[0]
     except Exception:
         pass
     # Geocode failed — insert without coordinates so the quote can still be saved
     cursor.execute(
-        "INSERT INTO houses (address) VALUES (?)", (address,)
+        "INSERT INTO houses (address, outcome) VALUES (?, ?)",
+        (address, "not_interested")
     )
     return cursor.execute("SELECT last_insert_rowid()").fetchone()[0]
 
