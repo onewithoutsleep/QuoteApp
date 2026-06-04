@@ -730,18 +730,19 @@ def api_map():
 def api_add_house():
     if request.is_json:
         data = request.get_json(force=True)
-        lat, lng, address = data["lat"], data["lng"], data["address"]
+        lat, lng = data["lat"], data["lng"]
+        address = data.get("address")
     else:
         lat = request.form["lat"]
         lng = request.form["lng"]
-        address = request.form["address"]
-    address = normalize_address(address)
+        address = request.form.get("address")
+    address = normalize_address(address) if address else ""
     knocked_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     conn = get_db()
     conn.execute(
-        "INSERT INTO houses (lat, lng, address, knocked_at) VALUES (?, ?, ?, ?)",
-        (lat, lng, address, knocked_at),
+        "INSERT INTO houses (lat, lng, address, knocked_at, outcome) VALUES (?, ?, ?, ?, ?)",
+        (lat, lng, address, knocked_at, "not_interested"),
     )
     conn.commit()
     house_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

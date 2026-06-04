@@ -525,39 +525,94 @@ function initMap(el, data, highlightId, navigate) {
       await doMove(selectedHouseId, selectedMarker, e.latlng.lat, e.latlng.lng);
       return;
     }
-    if (moveMode) return;
-    if (!knockMode) return;
+    if (moveMode || !knockMode) return;
+
+    const { lat, lng } = e.latlng;
+    // Create immediately
+    const houseData = {
+      id: null,
+      address: 'Loading address...',
+      knocked_at: new Date().toISOString(),
+      outcome: 'not_interested',
+      note: null,
+      lat,
+      lng,
+      quote_id: null,
+      service_id: null,
+    };
+
+    const marker = buildMarker(houseData);
+
+    marker._statusEditMode = true;
+    marker.openPopup();
 
     try {
-      const { lat, lng } = e.latlng;
-      const geoRes = await fetch(
+      // Start both requests in parallel
+      const geoPromise = fetch(
         `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&lat=${lat}&lon=${lng}`
       );
-      if (!geoRes.ok) return;
-      const geoData = await geoRes.json();
-      const houseNumber = geoData.address?.house_number || '';
-      const road = geoData.address?.road || geoData.address?.pedestrian || geoData.address?.footway || geoData.address?.path || '';
-      if (!road) return;
-
-      const address  = `${houseNumber} ${road}`.trim();
 
       const form = new FormData();
       form.append('lat', lat);
       form.append('lng', lng);
-      form.append('address', address);
-      const result = await api.addHouse(form);
-      if (!result || result.status === 'exists') return;
+      form.append('outcome', 'not_interested');
 
-      const houseData = {
-        id: result.id, address: result.address || address,
-        knocked_at: result.knocked_at, outcome: null, note: null,
-        lat, lng,
-        quote_id: null, service_id: null,
-      };
-      const marker = buildMarker(houseData);
-      marker._statusEditMode = true;
-      marker.openPopup();
+      const savePromise = api.addHouse(form);
+
+      // Update address when geocode returns
+      geoPromise
+        .then((r) => r.json())
+        .then(async (geoData) => {
+          const houseNumber = geoData.address?.house_number || '';
+          const road =
+            geoData.address?.road ||
+            geoData.address?.pedestrian ||
+            geoData.address?.footway ||
+            geoData.address?.path ||
+            '';
+
+          if (!road) return;
+
+          const address = `${houseNumber} ${road}`.trim();
+
+          houseData.address = address;
+
+          if (marker.isPopupOpen()) {
+            marker.setPopupContent(knockChooserHtml(houseData));
+            bindPopupEvents(marker, houseData);
+          }
+
+          // Update server address once house exists
+          if (houseData.id) {
+            await api.updateHouseAddress(houseData.id, address);
+          }
+        });
+
+      const result = await savePromise;
+
+      if (!result || result.status === 'exists') {
+        map.removeLayer(marker);
+        return;
+      }
+
+      houseData.id = result.id;
+
+      if (result.address) {
+        houseData.address = result.address;
+      }
+
+      markerRegistry[result.id] = marker;
+
+      marker.setStyle({
+        color: markerColor(houseData),
+      });
+
+      if (marker.isPopupOpen()) {
+        marker.setPopupContent(knockChooserHtml(houseData));
+        bindPopupEvents(marker, houseData);
+      }
     } catch (err) {
+      map.removeLayer(marker);
       console.error('Map click error:', err);
     }
   });
