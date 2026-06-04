@@ -1,3 +1,4 @@
+/* ── Map page body ─────────────────────────────────────────── */
 body.map-active {
   margin: 0;
   height: 100%;
@@ -21,39 +22,345 @@ body.map-active #map {
   z-index: 1;
 }
 
-.leaflet-popup-content {
-  font-size: 16px;
-  min-width: 220px;
+/* ── Hide Leaflet's default controls ───────────────────────── */
+.leaflet-control-zoom,
+.leaflet-control-layers {
+  display: none !important;
 }
 
-.leaflet-popup-content button {
-  font-size: 15px;
-  padding: 9px 14px;
-  margin: 4px 4px 0 0;
-  border-radius: 8px;
+.leaflet-control-attribution {
+  font-size: 10px;
+  opacity: 0.5;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ── Custom map controls panel ─────────────────────────────── */
+.map-controls {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.map-ctrl-group {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.13), 0 1px 3px rgba(0,0,0,0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.map-ctrl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: #fff;
   border: none;
   cursor: pointer;
-  font-weight: bold;
-  color: white;
-  background: #2d89ef;
-  width: auto;
+  color: #555;
+  font-size: 20px;
+  position: relative;
+  transition: background 0.15s, color 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.leaflet-popup-content button.btn-green { background: #27ae60; }
-.leaflet-popup-content button.btn-red { background: #c0392b; }
-.leaflet-popup-content button.btn-orange { background: #e67e22; }
+.map-ctrl-btn:not(:last-child) {
+  border-bottom: 1px solid #f0f0f0;
+}
 
-.leaflet-popup-content-wrapper { border-radius: 12px; }
+.map-ctrl-btn:active {
+  background: #f4f4f4;
+}
 
-.popup-meta { font-size: 14px; color: #888; margin-bottom: 8px; }
-.popup-booking { font-size: 14px; color: #27ae60; margin-bottom: 8px; }
+.map-ctrl-btn.active {
+  color: #2d89ef;
+  background: #eef5fd;
+}
 
+.map-ctrl-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+/* ── Legend panel ──────────────────────────────────────────── */
+.map-legend {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 1000;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.13), 0 1px 3px rgba(0,0,0,0.08);
+  padding: 12px 14px;
+  min-width: 148px;
+  display: none;
+  animation: legendIn 0.15s ease;
+}
+
+.map-legend.visible {
+  display: block;
+}
+
+@keyframes legendIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.map-legend-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #aaa;
+  margin-bottom: 9px;
+}
+
+.map-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: #444;
+  margin-bottom: 7px;
+}
+
+.map-legend-item:last-child {
+  margin-bottom: 0;
+}
+
+.map-legend-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid rgba(0,0,0,0.15);
+}
+
+/* ── Knock-mode banner ─────────────────────────────────────── */
+.map-knock-banner {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1001;
+  background: #2d89ef;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 50px;
+  box-shadow: 0 2px 10px rgba(45,137,239,0.35);
+  white-space: nowrap;
+  display: none;
+  animation: bannerIn 0.2s ease;
+}
+
+.map-knock-banner.visible {
+  display: block;
+}
+
+@keyframes bannerIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Leaflet popup ─────────────────────────────────────────── */
+.leaflet-popup-content-wrapper {
+  border-radius: 14px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.08);
+  padding: 0;
+  overflow: hidden;
+}
+
+.leaflet-popup-tip-container {
+  margin-top: -1px;
+}
+
+.leaflet-popup-content {
+  margin: 0;
+  min-width: 220px;
+  font-size: 15px;
+}
+
+/* ── Popup inner structure ─────────────────────────────────── */
+.map-popup {
+  display: flex;
+  flex-direction: column;
+}
+
+.map-popup-header {
+  background: #2d89ef;
+  color: #fff;
+  padding: 11px 14px 10px;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.map-popup-body {
+  padding: 10px 14px 12px;
+}
+
+.map-popup-meta {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 5px;
+}
+
+.map-popup-booking {
+  font-size: 13px;
+  color: #27ae60;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+.map-popup-note {
+  font-size: 13px;
+  color: #888;
+  font-style: italic;
+  margin-bottom: 5px;
+}
+
+/* ── Popup action buttons ──────────────────────────────────── */
+.map-popup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 12px;
+}
+
+.map-popup-actions button {
+  flex: 1 1 calc(50% - 3px);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 10px;
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  background: #2d89ef;
+  transition: filter 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.map-popup-actions button:active {
+  filter: brightness(0.9);
+}
+
+.map-popup-actions button.btn-green  { background: #27ae60; }
+.map-popup-actions button.btn-red    { background: #c0392b; }
+.map-popup-actions button.btn-orange { background: #e67e22; }
+.map-popup-actions button.btn-gray   { background: #888; }
+.map-popup-actions button.btn-full   { flex: 1 1 100%; }
+
+/* ── Knock action sheet (first tap on un-knocked house) ──────── */
+.map-knock-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0,0,0,0.38);
+  animation: sheetOverlayIn 0.2s ease;
+}
+
+@keyframes sheetOverlayIn {
+  from { background: rgba(0,0,0,0); }
+  to   { background: rgba(0,0,0,0.38); }
+}
+
+.map-knock-sheet-body {
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding: 8px 16px calc(28px + env(safe-area-inset-bottom));
+  animation: sheetUp 0.22s cubic-bezier(0.4,0,0.2,1);
+}
+
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.map-knock-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: #ddd;
+  margin: 8px auto 14px;
+}
+
+.map-knock-sheet-address {
+  font-size: 15px;
+  font-weight: 700;
+  color: #222;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.map-knock-sheet-sub {
+  font-size: 13px;
+  color: #aaa;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.map-knock-sheet-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 12px;
+  background: #f7f7f7;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+  cursor: pointer;
+  margin-bottom: 8px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s;
+}
+
+.map-knock-sheet-btn:last-child {
+  margin-bottom: 0;
+}
+
+.map-knock-sheet-btn:active {
+  background: #eee;
+}
+
+.map-knock-sheet-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+.map-knock-sheet-btn.opt-no-answer  { color: #888; }
+.map-knock-sheet-btn.opt-not-interested { color: #c0392b; }
+.map-knock-sheet-btn.opt-add-quote  { color: #27ae60; }
+.map-knock-sheet-btn.opt-add-note   { color: #e67e22; }
+.map-knock-sheet-btn.opt-cancel     { color: #aaa; background: transparent; font-weight: 500; }
+
+/* ── Location dot ──────────────────────────────────────────── */
 .location-dot {
   animation: locationPulse 2s ease-in-out infinite;
 }
 
 @keyframes locationPulse {
-  0% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.75; transform: scale(1.3); }
+  0%   { opacity: 1; transform: scale(1); }
+  50%  { opacity: 0.72; transform: scale(1.28); }
   100% { opacity: 1; transform: scale(1); }
 }
