@@ -153,12 +153,8 @@ export const quoteFormPage = {
 
 function renderAddressField(house, quote, isEdit) {
   const addr = house?.address || quote?.address;
-  if (addr) {
-    return `<label class="field-label">Address</label>
-      <div class="address-readonly">${esc(addr)}</div>`;
-  }
   return `<label class="field-label">Address</label>
-    <input name="address" placeholder="123 Main St" required>`;
+    <input name="address" placeholder="123 Main St" value="${esc(addr)}" required>`;
 }
 
 function esc(s) {
