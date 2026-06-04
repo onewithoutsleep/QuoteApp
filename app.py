@@ -470,7 +470,7 @@ def api_quote_create():
             FROM quotes
             WHERE id = ?
         )
-    """, (data["address"], id))
+    """, (data["address"], house_id))
 
     c.execute("""
         INSERT INTO quotes
