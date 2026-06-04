@@ -51,6 +51,8 @@ export const getStats = () => request('GET', '/api/stats');
 export const getSettings = () => request('GET', '/api/settings');
 export const updateSettings = (data) => request('PUT', '/api/settings', data);
 
+export const updateHouseOutcome = (id, data) => request('PATCH', `/api/houses/${id}/outcome`, data);
+
 export const getService = (id) => request('GET', `/api/services/${id}`);
 export const createService = (data) => request('POST', '/api/services', data);
 export const updateService = (id, data) => request('PUT', `/api/services/${id}`, data);

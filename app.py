@@ -157,7 +157,9 @@ def get_db(username=None):
             lat         REAL,
             lng         REAL,
             address     TEXT UNIQUE NOT NULL,
-            knocked_at  TEXT
+            knocked_at  TEXT,
+            outcome     TEXT,
+            note        TEXT
         )
     """)
     conn.execute("""
@@ -220,6 +222,16 @@ def get_db(username=None):
     ]:
         if col not in svc_cols:
             conn.execute(f"ALTER TABLE services ADD COLUMN {col} {defn}")
+    conn.commit()
+
+    # Migrate houses table: add outcome and note columns if missing
+    house_cols = [r[1] for r in conn.execute("PRAGMA table_info(houses)").fetchall()]
+    for col, defn in [
+        ("outcome", "TEXT"),
+        ("note",    "TEXT"),
+    ]:
+        if col not in house_cols:
+            conn.execute(f"ALTER TABLE houses ADD COLUMN {col} {defn}")
     conn.commit()
 
     _migrate(conn)
@@ -766,6 +778,28 @@ def api_move_house(id):
         "lat": lat,
         "lng": lng,
     })
+
+
+@app.route("/api/houses/<int:id>/outcome", methods=["PATCH"])
+@api_login_required
+def api_house_outcome(id):
+    data = request.get_json(force=True)
+    outcome = data.get("outcome") or None
+    note = data.get("note") or None
+    allowed = {None, "no_answer", "not_interested"}
+    if outcome not in allowed:
+        return jsonify({"status": "error", "msg": "invalid outcome"}), 400
+    conn = get_db()
+    conn.execute(
+        "UPDATE houses SET outcome=?, note=? WHERE id=?",
+        (outcome, note, id),
+    )
+    conn.commit()
+    updated = conn.execute("SELECT * FROM houses WHERE id=?", (id,)).fetchone()
+    conn.close()
+    if updated is None:
+        return jsonify({"status": "error", "msg": "not found"}), 404
+    return jsonify({"status": "ok", "outcome": updated["outcome"], "note": updated["note"]})
 
 
 @app.route("/api/expenses")
