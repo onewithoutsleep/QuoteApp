@@ -837,6 +837,8 @@ def api_house_outcome(id):
     outcome = data.get("outcome") or None
     note = data.get("note") or None
     allowed = {None, "no_answer", "not_interested"}
+    if note:
+        outcome = None
     if outcome not in allowed:
         return jsonify({"status": "error", "msg": "invalid outcome"}), 400
     conn = get_db()

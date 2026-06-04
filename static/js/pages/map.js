@@ -411,20 +411,20 @@ function initMap(el, data, highlightId, navigate) {
     markerRegistry[houseData.id] = marker;
 
     // Decide which popup view to show on open
-    marker._statusEditMode = false;
+    marker._isNewlyCreated = false;
 
     function currentPopupHtml() {
-      if (marker._statusEditMode) {
-        return knockChooserHtml(houseData);
-      }
       return standardPopupHtml(houseData);
     }
-
     marker.bindPopup(currentPopupHtml(), { maxWidth: 280 });
 
     // Refresh popup content each time it opens so knock mode is respected
     marker.on('popupopen', () => {
       marker.setPopupContent(currentPopupHtml());
+      bindPopupEvents(marker, houseData);
+    });
+    marker.on('click', () => {
+      marker.setPopupContent(standardPopupHtml(houseData));
       bindPopupEvents(marker, houseData);
     });
 
@@ -493,9 +493,14 @@ function initMap(el, data, highlightId, navigate) {
             await applyOutcome(
               houseData,
               marker,
-              houseData.outcome,
-              note
+              note ? null : houseData.outcome,
+              note || null
             );
+
+            if (note) {
+              houseData.outcome = null;
+            }
+
             marker._statusEditMode = false;
             map.closePopup();
           });
@@ -596,6 +601,10 @@ function initMap(el, data, highlightId, navigate) {
       }
 
       houseData.id = result.id;
+      
+      marker._isNewlyCreated = false;
+      marker.setPopupContent(standardPopupHtml(houseData));
+      bindPopupEvents(marker, houseData);
 
       if (result.address) {
         houseData.address = result.address;
