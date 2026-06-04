@@ -85,7 +85,12 @@ function knockChooserHtml(h) {
 
   return `
     <div class="map-popup">
-      <div class="map-popup-header">${h.address || 'No address'}</div>
+      <div class="map-popup-header">
+        <span>${h.address || 'No address'}</span>
+        <button class="edit-address-btn" data-edit-address>
+          <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>
+      </div>
       <div class="map-popup-body">${knockLine}${noteHtml}</div>
       <div class="map-popup-actions">
         <button class="btn-gray"  data-knock="no_answer">No answer</button>
@@ -129,7 +134,12 @@ function standardPopupHtml(h) {
 
   return `
     <div class="map-popup">
-      <div class="map-popup-header">${h.address || 'No address'}</div>
+      <div class="map-popup-header">
+        <span>${h.address || 'No address'}</span>
+        <button class="edit-address-btn" data-edit-address>
+          <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>
+      </div>
       <div class="map-popup-body">${knockLine}${customerLine}${bookingLine}${outcomeLine}${noteLine}</div>
       <div class="map-popup-actions">${buttons}${moveBtn}${editStatusBtn}${deleteBtn}</div>
     </div>`;
@@ -164,6 +174,39 @@ function openNoteModal(initialValue = '', onSave) {
 
   modal.querySelector('[data-save]').onclick = () => {
     const value = modal.querySelector('textarea').value.trim();
+    modal.remove();
+    onSave(value);
+  };
+}
+
+function openAddressModal(initialValue = '', onSave) {
+  const modal = document.createElement('div');
+
+  modal.className = 'note-modal';
+
+  modal.innerHTML = `
+    <div class="note-modal-card">
+      <input
+        type="text"
+        value="${initialValue}"
+        class="address-input"
+      >
+
+      <div class="note-modal-actions">
+        <button data-cancel>Cancel</button>
+        <button class="btn-green" data-save>Save</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  modal.querySelector('[data-cancel]').onclick = () => {
+    modal.remove();
+  };
+
+  modal.querySelector('[data-save]').onclick = () => {
+    const value = modal.querySelector('.address-input').value.trim();
     modal.remove();
     onSave(value);
   };
@@ -411,6 +454,30 @@ function initMap(el, data, highlightId, navigate) {
       marker.setPopupContent(knockChooserHtml(houseData));
       bindPopupEvents(marker, houseData);
     });
+    el.querySelector('[data-edit-address]')?.addEventListener('click', () => {
+      openAddressModal(houseData.address || '', async (address) => {
+        try {
+          const result = await api.updateHouseAddress(
+            houseData.id,
+            address
+          );
+
+          if (result?.status === 'ok') {
+            houseData.address = result.address;
+
+            marker.setPopupContent(
+              marker._statusEditMode
+                ? knockChooserHtml(houseData)
+                : standardPopupHtml(houseData)
+            );
+
+            bindPopupEvents(marker, houseData);
+          }
+        } catch (err) {
+          console.error('Address update error:', err);
+        }
+      });
+    });
 
     // Knock chooser actions
     el.querySelectorAll('[data-knock]').forEach((btn) => {
@@ -473,13 +540,10 @@ function initMap(el, data, highlightId, navigate) {
       if (!road) return;
 
       const address  = `${houseNumber} ${road}`.trim();
-      const realLat  = parseFloat(geoData.lat);
-      const realLng  = parseFloat(geoData.lon);
-      if (isNaN(realLat) || isNaN(realLng)) return;
 
       const form = new FormData();
-      form.append('lat', realLat);
-      form.append('lng', realLng);
+      form.append('lat', lat);
+      form.append('lng', lng);
       form.append('address', address);
       const result = await api.addHouse(form);
       if (!result || result.status === 'exists') return;
@@ -487,7 +551,7 @@ function initMap(el, data, highlightId, navigate) {
       const houseData = {
         id: result.id, address: result.address || address,
         knocked_at: result.knocked_at, outcome: null, note: null,
-        lat: realLat, lng: realLng,
+        lat, lng,
         quote_id: null, service_id: null,
       };
       const marker = buildMarker(houseData);

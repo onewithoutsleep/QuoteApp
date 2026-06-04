@@ -58,3 +58,4 @@ export const createService = (data) => request('POST', '/api/services', data);
 export const updateService = (id, data) => request('PUT', `/api/services/${id}`, data);
 export const deleteService = (id) => request('DELETE', `/api/services/${id}`);
 export const completeService = (id, form) => request('POST', `/api/services/${id}/complete`, form);
+export const updateHouseAddress = (id, address) => request('POST', `/api/houses/${id}/address`, {address}) ;

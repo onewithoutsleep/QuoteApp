@@ -151,12 +151,14 @@ def get_db(username=None):
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
 
+    # houses: no UNIQUE on address — two nearby houses may share the same
+    # geocoded address and must both be storable.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS houses (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             lat         REAL,
             lng         REAL,
-            address     TEXT UNIQUE NOT NULL,
+            address     TEXT NOT NULL,
             knocked_at  TEXT,
             outcome     TEXT,
             note        TEXT
@@ -240,9 +242,17 @@ def get_db(username=None):
 
 def _migrate(conn):
     """
-    One-time migration: if the old schema exists (quotes.address column,
-    houses.quote_id column), move address data into houses and wire up
-    house_id on quotes, then drop the stale columns via table rebuild.
+    Runs two migrations in order:
+
+    Migration 1 (old address-based schema):
+      If the old schema exists (quotes.address column, houses.quote_id column),
+      move address data into houses and wire up house_id on quotes, then drop
+      the stale columns via table rebuild.
+
+    Migration 2 (drop UNIQUE constraint on houses.address):
+      If houses.address still carries a UNIQUE constraint (detectable via
+      sqlite_master), rebuild the table without it so that two nearby houses
+      can share the same geocoded address string.
     """
     quote_cols = [r[1] for r in conn.execute("PRAGMA table_info(quotes)").fetchall()]
     house_cols = [r[1] for r in conn.execute("PRAGMA table_info(houses)").fetchall()]
@@ -250,95 +260,124 @@ def _migrate(conn):
     need_quote_migration = "address" in quote_cols and "house_id" not in quote_cols
     need_house_migration  = "quote_id" in house_cols
 
-    if not need_quote_migration and not need_house_migration:
-        return  # already on new schema
+    if need_quote_migration or need_house_migration:
+        # Step 1 — ensure house_id column exists on quotes (temp nullable)
+        if "house_id" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN house_id INTEGER")
 
-    # Step 1 — ensure house_id column exists on quotes (temp nullable)
-    if "house_id" not in quote_cols:
-        conn.execute("ALTER TABLE quotes ADD COLUMN house_id INTEGER")
+        # Step 2 — for each quote, find or create a house row and set house_id
+        rows = conn.execute("SELECT id, address FROM quotes WHERE house_id IS NULL").fetchall()
+        for q in rows:
+            addr = normalize_address(q["address"] or "")
+            if not addr:
+                addr = f"Unknown (quote {q['id']})"
 
-    # Step 2 — for each quote, find or create a house row and set house_id
-    rows = conn.execute("SELECT id, address FROM quotes WHERE house_id IS NULL").fetchall()
-    for q in rows:
-        addr = normalize_address(q["address"] or "")
-        if not addr:
-            addr = f"Unknown (quote {q['id']})"
+            existing = conn.execute(
+                "SELECT id FROM houses WHERE address=? COLLATE NOCASE LIMIT 1", (addr,)
+            ).fetchone()
 
-        existing = conn.execute(
-            "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (addr,)
-        ).fetchone()
+            if existing:
+                house_id = existing["id"]
+            else:
+                conn.execute(
+                    "INSERT INTO houses (address) VALUES (?)", (addr,)
+                )
+                house_id = conn.execute(
+                    "SELECT id FROM houses WHERE address=? COLLATE NOCASE LIMIT 1", (addr,)
+                ).fetchone()["id"]
 
-        if existing:
-            house_id = existing["id"]
-        else:
             conn.execute(
-                "INSERT OR IGNORE INTO houses (address) VALUES (?)", (addr,)
+                "UPDATE quotes SET house_id=? WHERE id=?", (house_id, q["id"])
             )
-            house_id = conn.execute(
-                "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (addr,)
-            ).fetchone()["id"]
 
-        conn.execute(
-            "UPDATE quotes SET house_id=? WHERE id=?", (house_id, q["id"])
-        )
+        conn.commit()
 
-    conn.commit()
+        conn.execute("PRAGMA foreign_keys = OFF")
 
-    # Disable FK constraints for the duration of the table rebuilds
-    conn.execute("PRAGMA foreign_keys = OFF")
+        # Step 3 — rebuild quotes without address column
+        if "address" in quote_cols:
+            conn.execute("DROP TABLE IF EXISTS quotes_new")
+            conn.execute("""
+                CREATE TABLE quotes_new (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    house_id      INTEGER NOT NULL REFERENCES houses(id),
+                    customer      TEXT,
+                    phone         TEXT,
+                    email         TEXT,
+                    windows       INTEGER,
+                    outside_price REAL,
+                    inside_price  REAL,
+                    both_price    REAL,
+                    notes         TEXT,
+                    quote_date    TEXT,
+                    found_via     TEXT
+                )
+            """)
+            conn.execute("""
+                INSERT INTO quotes_new
+                    (id, house_id, customer, phone, email, windows,
+                     outside_price, inside_price, both_price, notes, quote_date, found_via)
+                SELECT
+                    id, house_id, customer, phone, email, windows,
+                    outside_price, inside_price, both_price, notes, quote_date, found_via
+                FROM quotes
+            """)
+            conn.execute("DROP TABLE quotes")
+            conn.execute("ALTER TABLE quotes_new RENAME TO quotes")
 
-    # Step 3 — rebuild quotes without address column
-    if "address" in quote_cols:
-        conn.execute("DROP TABLE IF EXISTS quotes_new")
-        conn.execute("""
-            CREATE TABLE quotes_new (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                house_id      INTEGER NOT NULL REFERENCES houses(id),
-                customer      TEXT,
-                phone         TEXT,
-                email         TEXT,
-                windows       INTEGER,
-                outside_price REAL,
-                inside_price  REAL,
-                both_price    REAL,
-                notes         TEXT,
-                quote_date    TEXT,
-                found_via     TEXT
-            )
-        """)
-        conn.execute("""
-            INSERT INTO quotes_new
-                (id, house_id, customer, phone, email, windows,
-                 outside_price, inside_price, both_price, notes, quote_date, found_via)
-            SELECT
-                id, house_id, customer, phone, email, windows,
-                outside_price, inside_price, both_price, notes, quote_date, found_via
-            FROM quotes
-        """)
-        conn.execute("DROP TABLE quotes")
-        conn.execute("ALTER TABLE quotes_new RENAME TO quotes")
+        # Step 4 — rebuild houses without quote_id column
+        if "quote_id" in house_cols:
+            conn.execute("DROP TABLE IF EXISTS houses_new")
+            conn.execute("""
+                CREATE TABLE houses_new (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lat        REAL,
+                    lng        REAL,
+                    address    TEXT NOT NULL,
+                    knocked_at TEXT
+                )
+            """)
+            conn.execute("""
+                INSERT INTO houses_new (id, lat, lng, address, knocked_at)
+                SELECT id, lat, lng, address, knocked_at FROM houses
+            """)
+            conn.execute("DROP TABLE houses")
+            conn.execute("ALTER TABLE houses_new RENAME TO houses")
 
-    # Step 4 — rebuild houses without quote_id column
-    if "quote_id" in house_cols:
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys = ON")
+
+    # Migration 2: drop UNIQUE constraint on houses.address if it still exists.
+    # SQLite doesn't support DROP CONSTRAINT, so we check sqlite_master and
+    # rebuild the table only when the constraint is actually present.
+    ddl_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='houses'"
+    ).fetchone()
+    if ddl_row and "UNIQUE" in (ddl_row["sql"] or "").upper():
+        conn.execute("PRAGMA foreign_keys = OFF")
         conn.execute("DROP TABLE IF EXISTS houses_new")
         conn.execute("""
             CREATE TABLE houses_new (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 lat        REAL,
                 lng        REAL,
-                address    TEXT UNIQUE NOT NULL,
-                knocked_at TEXT
+                address    TEXT NOT NULL,
+                knocked_at TEXT,
+                outcome    TEXT,
+                note       TEXT
             )
         """)
         conn.execute("""
-            INSERT INTO houses_new (id, lat, lng, address, knocked_at)
-            SELECT id, lat, lng, address, knocked_at FROM houses
+            INSERT INTO houses_new (id, lat, lng, address, knocked_at, outcome, note)
+            SELECT id, lat, lng, address, knocked_at,
+                   CASE WHEN typeof(outcome)='null' THEN NULL ELSE outcome END,
+                   CASE WHEN typeof(note)='null' THEN NULL ELSE note END
+            FROM houses
         """)
         conn.execute("DROP TABLE houses")
         conn.execute("ALTER TABLE houses_new RENAME TO houses")
-
-    conn.commit()
-    conn.execute("PRAGMA foreign_keys = ON")
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 # -----------------------------
@@ -380,23 +419,17 @@ def _geocode_and_create(cursor, address):
         ).json()
         if data:
             cursor.execute(
-                "INSERT OR IGNORE INTO houses (lat, lng, address) VALUES (?, ?, ?)",
+                "INSERT INTO houses (lat, lng, address) VALUES (?, ?, ?)",
                 (float(data[0]["lat"]), float(data[0]["lon"]), address)
             )
-            row = cursor.execute(
-                "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (address,)
-            ).fetchone()
-            return row["id"] if row else None
+            return cursor.execute("SELECT last_insert_rowid()").fetchone()[0]
     except Exception:
         pass
     # Geocode failed — insert without coordinates so the quote can still be saved
     cursor.execute(
-        "INSERT OR IGNORE INTO houses (address) VALUES (?)", (address,)
+        "INSERT INTO houses (address) VALUES (?)", (address,)
     )
-    row = cursor.execute(
-        "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (address,)
-    ).fetchone()
-    return row["id"] if row else None
+    return cursor.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 
 def normalize_address(addr):
@@ -583,14 +616,10 @@ def api_quote_create():
         if not address:
             conn.close()
             return jsonify({"error": "address required"}), 400
-        existing = c.execute(
-            "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (address,)
-        ).fetchone()
-        if existing:
-            house_id = existing["id"]
-        else:
-            house_id = _geocode_and_create(c, address)
-            conn.commit()
+        # Always create a new house row — duplicates are allowed because two
+        # nearby houses may share the same geocoded address string.
+        house_id = _geocode_and_create(c, address)
+        conn.commit()
 
     c.execute("""
         INSERT INTO quotes
@@ -710,13 +739,6 @@ def api_add_house():
     knocked_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     conn = get_db()
-    existing = conn.execute(
-        "SELECT id FROM houses WHERE address=? COLLATE NOCASE", (address,)
-    ).fetchone()
-    if existing:
-        conn.close()
-        return jsonify({"status": "exists"})
-
     conn.execute(
         "INSERT INTO houses (lat, lng, address, knocked_at) VALUES (?, ?, ?, ?)",
         (lat, lng, address, knocked_at),
@@ -729,6 +751,33 @@ def api_add_house():
         "lat": lat, "lng": lng, "address": address, "knocked_at": knocked_at,
     })
 
+@app.route("/api/houses/<int:house_id>/address", methods=["POST"])
+@api_login_required
+def api_update_house_address(house_id):
+    data = request.get_json(force=True)
+    
+    address = normalize_address(
+        data.get("address", "").strip()
+    )
+
+    conn = get_db()
+
+    conn.execute(
+        """
+        UPDATE houses
+        SET address = ?
+        WHERE id = ?
+        """,
+        (address, house_id),
+    )
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "status": "ok",
+        "address": address,
+    })
 
 @app.route("/api/houses/<int:id>", methods=["DELETE"])
 @api_login_required
