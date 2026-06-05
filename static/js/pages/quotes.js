@@ -11,6 +11,22 @@ export const quotesPage = {
     root.innerHTML = `
       <div class="container quotes-page">
         <h2>Saved Quotes</h2>
+
+        <div class="quotes-toolbar">
+          <input
+            id="quote-search"
+            class="quote-search"
+            type="text"
+            placeholder="Search name, address, phone, email..."
+          />
+
+          <select id="quote-filter" class="quote-filter">
+            <option value="all">All</option>
+            <option value="booked">Booked</option>
+            <option value="unbooked">Unbooked</option>
+          </select>
+        </div>
+
         <div id="quotes-list">Loading…</div>
       </div>`;
 
@@ -18,11 +34,63 @@ export const quotesPage = {
     try {
       const quotes = await api.getQuotes();
       if (!quotes?.length) {
-        listEl.innerHTML = '<p class="empty-msg">No quotes yet. Add one to get started.</p>';
+        listEl.innerHTML =
+          '<p class="empty-msg">No quotes yet. Add one to get started.</p>';
         return;
       }
-      listEl.innerHTML = '';
-      quotes.forEach((q) => listEl.appendChild(buildQuoteCard(q, navigate)));
+
+      const searchEl = root.querySelector('#quote-search');
+      const filterEl = root.querySelector('#quote-filter');
+
+      function renderQuotes() {
+        const search = searchEl.value.trim().toLowerCase();
+        const filter = filterEl.value;
+
+        const filtered = quotes.filter((q) => {
+          const searchable = [
+            q.customer,
+            q.address,
+            q.phone,
+            q.email,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+
+          const matchesSearch =
+            !search || searchable.includes(search);
+
+          const hasServices =
+            Array.isArray(q.services) && q.services.length > 0;
+
+          let matchesFilter = true;
+
+          if (filter === 'booked') {
+            matchesFilter = hasServices;
+          } else if (filter === 'unbooked') {
+            matchesFilter = !hasServices;
+          }
+
+          return matchesSearch && matchesFilter;
+        });
+
+        listEl.innerHTML = '';
+
+        if (!filtered.length) {
+          listEl.innerHTML =
+            '<p class="empty-msg">No matching quotes found.</p>';
+          return;
+        }
+
+        filtered.forEach((q) =>
+          listEl.appendChild(buildQuoteCard(q, navigate))
+        );
+      }
+
+      searchEl.addEventListener('input', renderQuotes);
+      filterEl.addEventListener('change', renderQuotes);
+
+      renderQuotes();
     } catch (err) {
       listEl.innerHTML = '<p class="empty-msg">Failed to load quotes.</p>';
       console.error(err);

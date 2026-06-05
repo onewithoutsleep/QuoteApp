@@ -131,3 +131,47 @@
   font-size: 16px;
   cursor: pointer;
 }
+
+.quotes-toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.quote-search {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #b8d8f8;
+  background: #eef5fd;
+  color: black;
+  font-size: 14px;
+}
+
+.quote-search::placeholder {
+  color: #666;
+}
+
+.quote-filter {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #b8d8f8;
+  background: #eef5fd;
+  color: black;
+  cursor: pointer;
+  font-size: 14px;
+  min-width: 120px;
+}
+
+@media (max-width: 640px) {
+  .quotes-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .quote-filter {
+    width: 100%;
+  }
+}
