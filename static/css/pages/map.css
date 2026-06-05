@@ -292,7 +292,13 @@ body.map-active #map {
   filter: brightness(0.9);
 }
 
-
+.map-popup-address {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
 
 .note-modal {
   position: fixed;

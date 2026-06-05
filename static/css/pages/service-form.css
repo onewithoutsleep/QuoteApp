@@ -65,3 +65,20 @@
 
 .completion-section h3 { margin: 0 0 12px; font-size: 16px; color: #27ae60; }
 .payment-fields { margin-top: 4px; }
+
+.edit-address-warning {
+  margin-top: 6px;
+  margin-bottom: 10px;
+  font-size: 10px;
+  color: #c62828;
+}
+
+.edit-quote-link {
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.edit-quote-link:hover {
+  opacity: 0.8;
+}

@@ -45,7 +45,8 @@ export const serviceFormPage = {
       <div class="container service-form-page">
         <div class="card">
           <h2>${isEdit ? 'Edit Booking' : 'Book Service'}</h2>
-          ${isEdit ? `<a class="address-link" href="https://maps.apple.com/?q=${encodeURIComponent(data.address || '')}" target="_blank" rel="noopener">📍 ${esc(data.address)}</a>` : `<div class="address-readonly">${esc(data.address)}</div>`}
+          ${`<div class="address-readonly" edit-address-link" id="addressLink">${esc(data.address)}</div>
+          <div class="edit-address-warning">To change this address, <a href="#/quote/${quote?.id || service?.quote_id}/edit">edit the saved quote.</a></div>`}
           <div class="customer-ref">${esc(data.customer)}${data.phone ? ` · ${esc(data.phone)}` : ''}</div>
           ${renderQuoteRef(data)}
           <form id="service-form">
@@ -88,6 +89,20 @@ export const serviceFormPage = {
         root.querySelector('#priceInput').value = el.dataset.price;
         root.querySelector('#priceInput').focus();
       });
+    });
+
+    const addressLink = root.querySelector('#addressLink');
+
+    addressLink?.addEventListener('click', () => {
+      const quoteIdToEdit = quote?.id || service?.quote_id;
+
+      if (
+        confirm(
+          'Addresses can only be changed in the saved quote.\n\nOpen the quote editor?'
+        )
+      ) {
+        navigate(`#/quote/${quoteIdToEdit}/edit`);;
+      }
     });
 
     if (isEdit) {

@@ -72,11 +72,6 @@ function markerColor(h) {
 }
 
 /* ── Popup HTML ─────────────────────────────────────────────── */
-/*
-  knockMode=true and house has no quote/service → show outcome chooser view.
-  Otherwise show the standard view.
-  After an outcome is chosen, the popup re-renders into standard view.
-*/
 function knockChooserHtml(h) {
   const knockLine = h.knocked_at
     ? `<div class="map-popup-meta">Knocked ${h.knocked_at}</div>` : '';
@@ -86,7 +81,7 @@ function knockChooserHtml(h) {
   return `
     <div class="map-popup">
       <div class="map-popup-header">
-        <span>${h.address || 'No address'}</span>
+        <span class="map-popup-address">${h.address || 'No address'}</span>
         <button class="edit-address-btn" data-edit-address>
           <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
         </button>
@@ -135,7 +130,7 @@ function standardPopupHtml(h) {
   return `
     <div class="map-popup">
       <div class="map-popup-header">
-        <span>${h.address || 'No address'}</span>
+        <span class="map-popup-address">${h.address || 'No address'}</span>
         <button class="edit-address-btn" data-edit-address>
           <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
         </button>
@@ -227,12 +222,13 @@ function initMap(el, data, highlightId, navigate) {
   );
   street.addTo(map);
 
-  let moveMode        = false;
-  let selectedMarker  = null;
-  let selectedHouseId = null;
-  let knockMode       = false;
-  let legendVisible   = false;
-  let currentLayer    = 'street';
+  let moveMode             = false;
+  let selectedMarker       = null;
+  let selectedHouseId      = null;
+  let knockMode            = false;
+  let legendVisible        = false;
+  let currentLayer         = 'street';
+  let markerClickedThisTick = false;
   const markerRegistry = {};
 
   /* ── Legend ─────────────────────────────────────────────── */
@@ -389,7 +385,7 @@ function initMap(el, data, highlightId, navigate) {
     selectedHouseId = houseId;
 
     moveBanner.classList.add('visible');
-    knockBanner.classList.remove('visible'); // optional but recommended
+    knockBanner.classList.remove('visible');
 
     map.closePopup();
   }
@@ -432,27 +428,47 @@ function initMap(el, data, highlightId, navigate) {
 
     markerRegistry[houseData.id] = marker;
 
-    // Decide which popup view to show on open
     marker._isNewlyCreated = false;
+    marker._statusEditMode = false;
 
     function currentPopupHtml() {
-      return standardPopupHtml(houseData);
+      return marker._statusEditMode
+        ? knockChooserHtml(houseData)
+        : standardPopupHtml(houseData);
     }
-    marker.bindPopup(currentPopupHtml(), { maxWidth: 280 });
 
-    // Refresh popup content each time it opens so knock mode is respected
+    marker.bindPopup(standardPopupHtml(houseData), { maxWidth: 280, minWidth: 240 });
+
     marker.on('popupopen', () => {
-      marker.setPopupContent(currentPopupHtml());
-      bindPopupEvents(marker, houseData);
+      // _openInChooser is set by the new-knock flow; otherwise always standard view
+      const chooser = !!marker._openInChooser;
+      marker._openInChooser = false;
+      swapPopupView(marker, houseData, chooser);
     });
-    marker.on('click', () => {
-      marker.setPopupContent(standardPopupHtml(houseData));
-      bindPopupEvents(marker, houseData);
+
+    marker.on('click', (e) => {
+      markerClickedThisTick = true;
+      if (moveMode && selectedHouseId === houseData.id) {
+        toggleMoveMode(houseData.id, marker);
+      }
     });
 
     if (isHighlighted) marker.openPopup();
 
     return marker;
+  }
+
+  /* ── Swap popup inner DOM without triggering popupopen ─── */
+  // Uses direct innerHTML mutation so Leaflet never fires popupopen/popupclose.
+  function swapPopupView(marker, houseData, chooserMode) {
+    const popupEl = marker.getPopup()?.getElement();
+    if (!popupEl) return;
+    const container = popupEl.querySelector('.leaflet-popup-content');
+    if (!container) return;
+    container.innerHTML = chooserMode
+      ? knockChooserHtml(houseData)
+      : standardPopupHtml(houseData);
+    bindPopupEvents(marker, houseData);
   }
 
   /* ── Wire up popup button events ────────────────────────── */
@@ -471,29 +487,20 @@ function initMap(el, data, highlightId, navigate) {
     el.querySelector('[data-go="service-edit"]')?.addEventListener('click', () => navigate(`#/service/${houseData.service_id}/edit`));
     el.querySelector('[data-go="service-new"]')?.addEventListener('click', () => navigate(`#/services/new/${houseData.quote_id}`));
     el.querySelector('[data-go="quote-new"]')?.addEventListener('click', () => navigate(`#/quotes/new?house_id=${houseData.id}`));
-    el.querySelector('[data-edit-status]')?.addEventListener('click', () => {
-      marker._statusEditMode = true;
-      marker.setPopupContent(knockChooserHtml(houseData));
-      bindPopupEvents(marker, houseData);
+    el.querySelector('[data-edit-status]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      swapPopupView(marker, houseData, true);
     });
     el.querySelector('[data-edit-address]')?.addEventListener('click', () => {
       openAddressModal(houseData.address || '', async (address) => {
         try {
-          const result = await api.updateHouseAddress(
-            houseData.id,
-            address
-          );
-
+          const result = await api.updateHouseAddress(houseData.id, address);
           if (result?.status === 'ok') {
             houseData.address = result.address;
-
-            marker.setPopupContent(
-              marker._statusEditMode
-                ? knockChooserHtml(houseData)
-                : standardPopupHtml(houseData)
-            );
-
-            bindPopupEvents(marker, houseData);
+            // Determine which view is currently shown and re-render it
+            const isChooser = !!el.querySelector('[data-knock]');
+            swapPopupView(marker, houseData, isChooser);
           }
         } catch (err) {
           console.error('Address update error:', err);
@@ -546,8 +553,13 @@ function initMap(el, data, highlightId, navigate) {
     }
   });
 
-  /* ── Map click: add new house ───────────────────────────── */
+  /* ── Map click: add new house or complete move ──────────── */
   map.on('click', async (e) => {
+    // If a marker was clicked this tick, don't also handle as a map click
+    if (markerClickedThisTick) {
+      markerClickedThisTick = false;
+      return;
+    }
     if (moveMode && selectedMarker && selectedHouseId) {
       await doMove(selectedHouseId, selectedMarker, e.latlng.lat, e.latlng.lng);
       return;
@@ -555,7 +567,6 @@ function initMap(el, data, highlightId, navigate) {
     if (moveMode || !knockMode) return;
 
     const { lat, lng } = e.latlng;
-    // Create immediately
     const houseData = {
       id: null,
       address: 'Loading address...',
@@ -570,11 +581,10 @@ function initMap(el, data, highlightId, navigate) {
 
     const marker = buildMarker(houseData);
 
-    marker._statusEditMode = true;
+    marker._openInChooser = true;
     marker.openPopup();
 
     try {
-      // Start both requests in parallel
       const geoPromise = fetch(
         `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&lat=${lat}&lon=${lng}`
       );
@@ -586,7 +596,6 @@ function initMap(el, data, highlightId, navigate) {
 
       const savePromise = api.addHouse(form);
 
-      // Update address when geocode returns
       geoPromise
         .then((r) => r.json())
         .then(async (geoData) => {
@@ -601,15 +610,12 @@ function initMap(el, data, highlightId, navigate) {
           if (!road) return;
 
           const address = `${houseNumber} ${road}`.trim();
-
           houseData.address = address;
 
           if (marker.isPopupOpen()) {
-            marker.setPopupContent(knockChooserHtml(houseData));
-            bindPopupEvents(marker, houseData);
+            swapPopupView(marker, houseData, true);
           }
 
-          // Update server address once house exists
           if (houseData.id) {
             await api.updateHouseAddress(houseData.id, address);
           }
@@ -623,10 +629,8 @@ function initMap(el, data, highlightId, navigate) {
       }
 
       houseData.id = result.id;
-      
+
       marker._isNewlyCreated = false;
-      marker.setPopupContent(standardPopupHtml(houseData));
-      bindPopupEvents(marker, houseData);
 
       if (result.address) {
         houseData.address = result.address;
@@ -634,13 +638,10 @@ function initMap(el, data, highlightId, navigate) {
 
       markerRegistry[result.id] = marker;
 
-      marker.setStyle({
-        color: markerColor(houseData),
-      });
+      marker.setStyle({ color: markerColor(houseData) });
 
       if (marker.isPopupOpen()) {
-        marker.setPopupContent(knockChooserHtml(houseData));
-        bindPopupEvents(marker, houseData);
+        swapPopupView(marker, houseData, true);
       }
     } catch (err) {
       map.removeLayer(marker);
