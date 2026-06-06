@@ -1,4 +1,5 @@
 import * as api from '../api.js';
+import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 
 let mapInstance = null;
@@ -13,11 +14,20 @@ export const mapPage = {
 
     root.innerHTML = '<div id="map"></div>';
 
+    if (getState().mapData) {
+      initMap(root.querySelector('#map'), getState().mapData, highlight, navigate);
+    }
+
     try {
       const data = await api.getMapData();
-      initMap(root.querySelector('#map'), data, highlight, navigate);
+      setState({ mapData: data });
+      if (!mapInstance) {
+        initMap(root.querySelector('#map'), data, highlight, navigate);
+      }
     } catch (err) {
-      root.innerHTML = '<div class="container"><p>Failed to load map.</p></div>';
+      if (!getState().mapData) {
+        root.innerHTML = '<div class="container"><p>Failed to load map.</p></div>';
+      }
       console.error(err);
     }
   },

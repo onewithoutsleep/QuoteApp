@@ -1,6 +1,12 @@
 let state = {
   user: null,
   rates: null,
+  quotes: null,
+  bookings: null,
+  expenses: null,
+  stats: null,
+  settings: null,
+  mapData: null,
 };
 
 const listeners = new Set();

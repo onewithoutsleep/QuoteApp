@@ -1,4 +1,5 @@
 import * as api from '../api.js';
+import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 import { renderFab } from '../components/fab.js';
 import { fmtPrice, time12, fmtPhone, phoneDigits, handlePhone } from '../utils.js';
@@ -27,72 +28,62 @@ export const quotesPage = {
           </select>
         </div>
 
-        <div id="quotes-list">Loading…</div>
+        <div id="quotes-list">${getState().quotes ? '' : 'Loading…'}</div>
       </div>`;
 
     const listEl = root.querySelector('#quotes-list');
-    try {
-      const quotes = await api.getQuotes();
+    const searchEl = root.querySelector('#quote-search');
+    const filterEl = root.querySelector('#quote-filter');
+
+    function renderQuotes(quotes) {
       if (!quotes?.length) {
         listEl.innerHTML =
           '<p class="empty-msg">No quotes yet. Add one to get started.</p>';
         return;
       }
 
-      const searchEl = root.querySelector('#quote-search');
-      const filterEl = root.querySelector('#quote-filter');
+      const search = searchEl.value.trim().toLowerCase();
+      const filter = filterEl.value;
 
-      function renderQuotes() {
-        const search = searchEl.value.trim().toLowerCase();
-        const filter = filterEl.value;
+      const filtered = quotes.filter((q) => {
+        const searchable = [q.customer, q.address, q.phone, q.email]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
 
-        const filtered = quotes.filter((q) => {
-          const searchable = [
-            q.customer,
-            q.address,
-            q.phone,
-            q.email,
-          ]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase();
+        const matchesSearch = !search || searchable.includes(search);
+        const hasServices = Array.isArray(q.services) && q.services.length > 0;
 
-          const matchesSearch =
-            !search || searchable.includes(search);
+        let matchesFilter = true;
+        if (filter === 'booked') matchesFilter = hasServices;
+        else if (filter === 'unbooked') matchesFilter = !hasServices;
 
-          const hasServices =
-            Array.isArray(q.services) && q.services.length > 0;
+        return matchesSearch && matchesFilter;
+      });
 
-          let matchesFilter = true;
-
-          if (filter === 'booked') {
-            matchesFilter = hasServices;
-          } else if (filter === 'unbooked') {
-            matchesFilter = !hasServices;
-          }
-
-          return matchesSearch && matchesFilter;
-        });
-
-        listEl.innerHTML = '';
-
-        if (!filtered.length) {
-          listEl.innerHTML =
-            '<p class="empty-msg">No matching quotes found.</p>';
-          return;
-        }
-
-        filtered.forEach((q) =>
-          listEl.appendChild(buildQuoteCard(q, navigate))
-        );
+      listEl.innerHTML = '';
+      if (!filtered.length) {
+        listEl.innerHTML = '<p class="empty-msg">No matching quotes found.</p>';
+        return;
       }
+      filtered.forEach((q) => listEl.appendChild(buildQuoteCard(q, navigate)));
+    }
 
-      searchEl.addEventListener('input', renderQuotes);
-      filterEl.addEventListener('change', renderQuotes);
+    searchEl.addEventListener('input', () => renderQuotes(getState().quotes));
+    filterEl.addEventListener('change', () => renderQuotes(getState().quotes));
 
-      renderQuotes();
+    if (getState().quotes) {
+      renderQuotes(getState().quotes);
+    }
+
+    try {
+      const quotes = await api.getQuotes();
+      setState({ quotes });
+      renderQuotes(quotes);
     } catch (err) {
-      listEl.innerHTML = '<p class="empty-msg">Failed to load quotes.</p>';
+      if (!getState().quotes) {
+        listEl.innerHTML = '<p class="empty-msg">Failed to load quotes.</p>';
+      }
       console.error(err);
     }
   },

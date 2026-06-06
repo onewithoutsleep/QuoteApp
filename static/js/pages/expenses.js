@@ -1,4 +1,5 @@
 import * as api from '../api.js';
+import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 import { fmtPrice, todayISO, bindRadioGroup } from '../utils.js';
 
@@ -27,7 +28,7 @@ export const expensesPage = {
             <button type="submit">Add Expense</button>
           </form>
         </div>
-        <div id="expenses-list">Loading…</div>
+        <div id="expenses-list">${getState().expenses ? '' : 'Loading…'}</div>
       </div>`;
 
     const catGroup = root.querySelector('#cat-group');
@@ -62,61 +63,74 @@ export const expensesPage = {
       }
     });
 
+    if (getState().expenses) {
+      renderExpensesList(root, getState().expenses);
+    }
+
     await loadExpenses(root);
   },
   unmount() {},
 };
 
 async function loadExpenses(root) {
-  const list = root.querySelector('#expenses-list');
-  const totalEl = root.querySelector('#expenses-total');
   try {
     const expenses = await api.getExpenses() || [];
-    const total = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    totalEl.innerHTML = expenses.length
-      ? `<div class="total-bar"><span class="label">Total Expenses</span><span class="amount">$${fmtPrice(total)}</span></div>`
-      : '';
-
-    if (!expenses.length) {
-      list.innerHTML = '<p class="empty-msg">No expenses yet.</p>';
-      return;
-    }
-
-    list.innerHTML = '';
-    expenses.forEach((exp) => {
-      const card = document.createElement('div');
-      card.className = 'expense-card';
-      card.innerHTML = `
-        <div class="expense-row">
-          <div class="expense-info">
-            <div class="expense-desc">${escapeHtml(exp.description || '(no description)')}</div>
-            <div class="expense-meta">
-              ${exp.category ? `<span class="expense-cat">${escapeHtml(exp.category)}</span>` : ''}
-              ${escapeHtml(exp.expense_date || '')}
-              ${exp.notes ? ` · ${escapeHtml(exp.notes)}` : ''}
-            </div>
-          </div>
-          <div class="expense-actions">
-            <div class="expense-amount">$${fmtPrice(exp.amount)}</div>
-            <button type="button" class="expense-delete" aria-label="Delete">✕</button>
-          </div>
-        </div>`;
-      card.querySelector('.expense-delete')?.addEventListener('click', async () => {
-        if (!confirm('Delete this expense?')) return;
-        try {
-          await api.deleteExpense(exp.id);
-          await loadExpenses(root);
-        } catch (err) {
-          alert('Failed to delete.');
-          console.error(err);
-        }
-      });
-      list.appendChild(card);
-    });
+    setState({ expenses });
+    renderExpensesList(root, expenses);
   } catch (err) {
-    list.innerHTML = '<p class="empty-msg">Failed to load expenses.</p>';
+    if (!getState().expenses) {
+      root.querySelector('#expenses-list').innerHTML = '<p class="empty-msg">Failed to load expenses.</p>';
+    }
     console.error(err);
   }
+}
+
+function renderExpensesList(root, expenses) {
+  const list = root.querySelector('#expenses-list');
+  const totalEl = root.querySelector('#expenses-total');
+  if (!list) return;
+  const total = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+  totalEl.innerHTML = expenses.length
+    ? `<div class="total-bar"><span class="label">Total Expenses</span><span class="amount">$${fmtPrice(total)}</span></div>`
+    : '';
+
+  if (!expenses.length) {
+    list.innerHTML = '<p class="empty-msg">No expenses yet.</p>';
+    return;
+  }
+
+  list.innerHTML = '';
+  expenses.forEach((exp) => {
+    const card = document.createElement('div');
+    card.className = 'expense-card';
+    card.innerHTML = `
+      <div class="expense-row">
+        <div class="expense-info">
+          <div class="expense-desc">${escapeHtml(exp.description || '(no description)')}</div>
+          <div class="expense-meta">
+            ${exp.category ? `<span class="expense-cat">${escapeHtml(exp.category)}</span>` : ''}
+            ${escapeHtml(exp.expense_date || '')}
+            ${exp.notes ? ` · ${escapeHtml(exp.notes)}` : ''}
+          </div>
+        </div>
+        <div class="expense-actions">
+          <div class="expense-amount">$${fmtPrice(exp.amount)}</div>
+          <button type="button" class="expense-delete" aria-label="Delete">✕</button>
+        </div>
+      </div>`;
+    card.querySelector('.expense-delete')?.addEventListener('click', async () => {
+      if (!confirm('Delete this expense?')) return;
+      try {
+        await api.deleteExpense(exp.id);
+        setState({ expenses: null });
+        await loadExpenses(root);
+      } catch (err) {
+        alert('Failed to delete.');
+        console.error(err);
+      }
+    });
+    list.appendChild(card);
+  });
 }
 
 function escapeHtml(s) {

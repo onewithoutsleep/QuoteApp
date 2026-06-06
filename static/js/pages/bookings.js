@@ -1,4 +1,5 @@
 import * as api from '../api.js';
+import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 import { fmtPrice, time12, fmtPhone, fmtDate, phoneDigits, handlePhone } from '../utils.js';
 
@@ -9,7 +10,7 @@ const state = {
   activeDate: null,
   todayStr: '',
   monthViewActive: false,
-  activeMonth: null, // { year, month }
+  activeMonth: null,
 };
 
 // ─── LIFECYCLE ───────────────────────────────────────────────────────────────
@@ -23,23 +24,34 @@ export const bookingsPage = {
     state.activeDate = state.todayStr;
     state.activeMonth = { year: today.getFullYear(), month: today.getMonth() };
 
-    // Initial Shell Layout
-    root.innerHTML = BaseLayout();
+    const cached = getState().bookings;
+    root.innerHTML = BaseLayout(cached == null);
 
-    // Event Listeners
     root.querySelector('#monthToggleBtn').addEventListener('click', () => {
       state.monthViewActive = !state.monthViewActive;
       toggleCalView(root, navigate);
     });
 
-    try {
-      state.servicesRaw = await api.getBookings() || [];
+    if (cached) {
+      state.servicesRaw = cached;
       rebuildDataMappings();
       renderCalendarStrip(root, navigate);
       renderBookingsList(root, navigate);
       setupSwipeGestures(root, navigate);
+    }
+
+    try {
+      const fresh = await api.getBookings() || [];
+      setState({ bookings: fresh });
+      state.servicesRaw = fresh;
+      rebuildDataMappings();
+      renderCalendarStrip(root, navigate);
+      renderBookingsList(root, navigate);
+      if (!cached) setupSwipeGestures(root, navigate);
     } catch (err) {
-      root.querySelector('#bookingsList').innerHTML = EmptyState('Failed to load bookings. Please try again.');
+      if (!getState().bookings) {
+        root.querySelector('#bookingsList').innerHTML = EmptyState('Failed to load bookings. Please try again.');
+      }
       console.error(err);
     }
   },
@@ -61,7 +73,7 @@ function rebuildDataMappings() {
 
 // ─── MAIN STRUCTURAL LAYOUTS ─────────────────────────────────────────────────
 
-function BaseLayout() {
+function BaseLayout(showLoading = true) {
   return `
     <div class="container bookings-page">
       <div class="cal-strip-wrap">
@@ -77,7 +89,7 @@ function BaseLayout() {
       </div>
       <h2>Bookings</h2>
       <div id="bookingsList">
-        <div class="empty-state"><p>Loading...</p></div>
+        ${showLoading ? '<div class="empty-state"><p>Loading...</p></div>' : ''}
       </div>
     </div>
   `;
@@ -130,7 +142,7 @@ function BookingCard(s, navigate) {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
           </button>
           <button type="button" class="icon-btn edit-link" title="Edit Booking">
-            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
           </button>
         </div>
       </div>
@@ -459,6 +471,7 @@ function openCompleteSheet(svc) {
           s.duration_minutes = form.get('duration_minutes') ? parseInt(form.get('duration_minutes'), 10) : null;
         }
       });
+      setState({ bookings: [...state.servicesRaw] });
       rebuildDataMappings();
       sheet.remove();
       

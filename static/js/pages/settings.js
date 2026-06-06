@@ -1,14 +1,13 @@
 import * as api from '../api.js';
+import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 
 export const settingsPage = {
   async mount({ root, slots, navigate }) {
     renderNav(slots.nav, 'stats');
-    root.innerHTML = '<div class="container"><h1>Settings</h1><div class="card"><p>Loading…</p></div></div>';
 
-    try {
-      const s = await api.getSettings();
-      root.innerHTML = `
+    function buildForm(s) {
+      return `
         <div class="container settings-page">
           <h1>Settings</h1>
           <div class="card">
@@ -28,7 +27,9 @@ export const settingsPage = {
             </form>
           </div>
         </div>`;
+    }
 
+    function bindForm(root) {
       root.querySelector('#settings-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
@@ -40,6 +41,7 @@ export const settingsPage = {
             email_template: fd.get('email_template'),
             text_template: fd.get('text_template'),
           });
+          setState({ settings: null });
           navigate('#/quotes');
         } catch (err) {
           alert('Failed to save settings.');
@@ -47,8 +49,25 @@ export const settingsPage = {
         }
       });
       root.querySelector('#cancel-btn')?.addEventListener('click', () => navigate('#/quotes'));
+    }
+
+    const cached = getState().settings;
+    if (cached) {
+      root.innerHTML = buildForm(cached);
+      bindForm(root);
+    } else {
+      root.innerHTML = '<div class="container"><h1>Settings</h1><div class="card"><p>Loading…</p></div></div>';
+    }
+
+    try {
+      const s = await api.getSettings();
+      setState({ settings: s });
+      root.innerHTML = buildForm(s);
+      bindForm(root);
     } catch (err) {
-      root.innerHTML = '<div class="container"><p>Failed to load settings.</p></div>';
+      if (!getState().settings) {
+        root.innerHTML = '<div class="container"><p>Failed to load settings.</p></div>';
+      }
       console.error(err);
     }
   },

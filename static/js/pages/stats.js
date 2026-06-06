@@ -1,17 +1,21 @@
 import * as api from '../api.js';
+import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 import { fmtPrice } from '../utils.js';
 
 export const statsPage = {
   async mount({ root, slots }) {
     renderNav(slots.nav, 'stats');
-    root.innerHTML = '<div class="container stats-page"><h2>Stats</h2><div id="stats-content">Loading…</div></div>';
+    root.innerHTML = `<div class="container stats-page"><h2>Stats</h2><div id="stats-content">${getState().stats ? renderStats(getState().stats) : 'Loading…'}</div></div>`;
 
     try {
       const d = await api.getStats();
+      setState({ stats: d });
       root.querySelector('#stats-content').innerHTML = renderStats(d);
     } catch (err) {
-      root.querySelector('#stats-content').innerHTML = '<p class="empty-msg">Failed to load stats.</p>';
+      if (!getState().stats) {
+        root.querySelector('#stats-content').innerHTML = '<p class="empty-msg">Failed to load stats.</p>';
+      }
       console.error(err);
     }
   },
@@ -27,8 +31,8 @@ function renderStats(d) {
     <div class="stat-grid">
       <div class="stat-box green"><div class="val">$${fmtPrice(d.total_revenue)}</div><div class="lbl">Revenue Collected</div></div>
       <div class="stat-box red"><div class="val">$${fmtPrice(d.total_expenses)}</div><div class="lbl">Total Expenses</div></div>
-      <div class="stat-box ${d.net_profit >= 0 ? 'green' : 'red'} full"><div class="val">$${fmtPrice(d.net_profit)}</div><div class="lbl">Net Profit</div></div>
       <div class="stat-box"><div class="val">$${fmtPrice(d.total_billed)}</div><div class="lbl">Total Billed</div></div>
+      <div class="stat-box ${d.net_profit >= 0 ? 'green' : 'red'}"><div class="val">$${fmtPrice(d.net_profit)}</div><div class="lbl">Net Profit</div></div>
       ${d.avg_duration ? `<div class="stat-box purple"><div class="val">${Math.round(d.avg_duration)} min</div><div class="lbl">Avg Job Duration</div></div>` : ''}
     </div>
     <div class="section-title">Pipeline Funnel</div>
