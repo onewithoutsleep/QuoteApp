@@ -140,7 +140,7 @@ export const serviceFormPage = {
         completed: fd.get('completed') ? 1 : 0,
         paid: fd.get('paid') ? 1 : 0,
         amount_paid: fd.get('amount_paid'),
-        duration_minutes: fd.get('duration_minutes'),
+        duration_hours: fd.get('duration_hours'),
       };
       try {
         if (isEdit) await api.updateService(serviceId, payload);
@@ -183,8 +183,8 @@ function renderCompletionSection(service) {
       </label>
     </div>
     <div class="payment-fields" id="paymentFields" style="${service.completed ? '' : 'display:none'}">
-      <label class="field-label">Minutes</label>
-      <input type="number" name="duration_minutes" value="${service.duration_minutes || ''}">
+      <label class="field-label">Hours</label>
+      <input type="number" name="duration_hours" value="${service.duration_hours || ''}">
       <div class="toggle-row">
         <span class="toggle-label">Paid</span>
         <label class="toggle-switch">

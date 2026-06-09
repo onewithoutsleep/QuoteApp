@@ -126,7 +126,7 @@ function BookingCard(s, navigate) {
           ${s.windows ? `<span class="bk-badge bk-type">${s.windows} Windows</span>` : ''}
           ${isDone && !s.paid ? '<span class="bk-badge bk-unpaid">Pending Payment</span>' : ''}
           ${s.paid && amtPaid ? `<span class="bk-paid">Paid $${amtPaid}</span>` : ''}
-          ${s.completed && s.duration_minutes ? `<span class="bk-badge bk-duration">${s.duration_minutes} min</span>` : ''}
+          ${s.completed && s.duration_hours ? `<span class="bk-badge bk-duration">${s.duration_hours} min</span>` : ''}
         </div>
         
         ${s.notes ? `<div class="booking-notes">"${escapeHtml(s.notes)}"</div>` : ''}
@@ -427,8 +427,8 @@ function openCompleteSheet(svc) {
         </label>
       </div>
       <div id="sPaySection" style="${isComplete ? '' : 'display:none'}">
-        <label class="field-label">Minutes</label>
-        <input type="number" id="sDuration" class="sheet-input" placeholder="e.g. 45" value="${svc.duration_minutes || ''}">
+        <label class="field-label">Hours</label>
+        <input type="number" id="sDuration" class="sheet-input" placeholder="e.g. 45" value="${svc.duration_hours || ''}">
         <div class="toggle-row">
           <span class="toggle-label">Paid</span>
           <label class="toggle-switch">
@@ -461,7 +461,7 @@ function openCompleteSheet(svc) {
     form.append('completed', completedEl.checked ? '1' : '0');
     form.append('paid', paidEl?.checked ? '1' : '0');
     form.append('amount_paid', sheet.querySelector('#sAmtPaid')?.value || '');
-    form.append('duration_minutes', sheet.querySelector('#sDuration')?.value || '');
+    form.append('duration_hours', sheet.querySelector('#sDuration')?.value || '');
     try {
       await api.completeService(svc.id, form);
       state.servicesRaw.forEach((s) => {
@@ -469,7 +469,7 @@ function openCompleteSheet(svc) {
           s.completed = completedEl.checked ? 1 : 0;
           s.paid = paidEl?.checked ? 1 : 0;
           s.amount_paid = form.get('amount_paid') ? parseFloat(form.get('amount_paid')) : null;
-          s.duration_minutes = form.get('duration_minutes') ? parseInt(form.get('duration_minutes'), 10) : null;
+          s.duration_hours = form.get('duration_hours') ? parseInt(form.get('duration_hours'), 10) : null;
         }
       });
       setState({ bookings: [...state.servicesRaw] });

@@ -11,6 +11,9 @@ import hashlib
 import re
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from flask import Response
+from icalendar import Calendar, Event
+import secrets
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -188,16 +191,18 @@ def get_db(username=None):
     """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS services (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            quote_id     INTEGER NOT NULL REFERENCES quotes(id),
-            service_date TEXT,
-            service_time TEXT,
-            type         TEXT,
-            price        REAL,
-            notes        TEXT,
-            completed    INTEGER DEFAULT 0,
-            paid         INTEGER DEFAULT 0,
-            amount_paid  REAL
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_id       INTEGER NOT NULL REFERENCES quotes(id),
+            service_date   TEXT,
+            service_time   TEXT,
+            created_at     TEXT,
+            type           TEXT,
+            price          REAL,
+            notes          TEXT,
+            completed      INTEGER DEFAULT 0,
+            duration_hours REAL,
+            paid           INTEGER DEFAULT 0,
+            amount_paid    REAL
         )
     """)
     conn.commit()
@@ -233,12 +238,42 @@ def get_db(username=None):
 
 
 def _migrate(conn):
-    # Add created_at to services if missing; back-fill from service_date.
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(services)").fetchall()]
-    if "created_at" not in cols:
-        conn.execute("ALTER TABLE services ADD COLUMN created_at TEXT")
-        conn.execute("UPDATE services SET created_at = service_date WHERE created_at IS NULL")
-        conn.commit()
+    cols = [r[1] for r in conn.execute(
+        "PRAGMA table_info(services)"
+    ).fetchall()]
+    # New migration
+    if "duration_hours" not in cols:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS services_new (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                quote_id       INTEGER NOT NULL REFERENCES quotes(id),
+                service_date   TEXT,
+                service_time   TEXT,
+                created_at     TEXT,
+                type           TEXT,
+                price          REAL,
+                notes          TEXT,
+                completed      INTEGER DEFAULT 0,
+                duration_hours REAL, -- renamed column
+                paid           INTEGER DEFAULT 0,
+                amount_paid    REAL
+            )
+        """)
+
+        conn.execute("""
+            INSERT INTO services_new (
+                id, quote_id, service_date, service_time, type, price, notes, completed, duration_hours, paid, amount_paid
+            )
+            SELECT 
+                id, quote_id, service_date, service_time, type, price, notes, completed, duration_minutes/60.0, paid, amount_paid
+            FROM services
+        """)
+
+        conn.execute("DROP TABLE services;")
+        conn.execute("ALTER TABLE services_new RENAME TO services;")
+
+    conn.commit()
+
 # -----------------------------
 # SETTING HELPERS
 # -----------------------------
@@ -301,6 +336,8 @@ def get_house_or_404(conn, house_id):
     row = conn.execute("SELECT * FROM houses WHERE id=?", (house_id,)).fetchone()
     return row
 
+def estimate_service_hours(num_windows):
+    return 0.5 + num_windows / 10 # change this to be based on avg completion duration for user
 
 # -----------------------------
 # AUTH ROUTES
@@ -800,8 +837,8 @@ def api_stats():
     ).fetchone()[0] or 0.0
     net_profit = total_revenue - total_expenses
     dur_row = conn.execute(
-        "SELECT AVG(duration_minutes) FROM services "
-        "WHERE completed=1 AND duration_minutes IS NOT NULL"
+        "SELECT AVG(duration_hours) FROM services "
+        "WHERE completed=1 AND duration_hours IS NOT NULL"
     ).fetchone()
     avg_duration = dur_row[0]
     monthly = conn.execute("""
@@ -915,23 +952,23 @@ def api_service_update(id):
     service_time = _parse_service_time(data)
     price = _parse_price(data.get("price"))
     amount_paid = _parse_price(data.get("amount_paid"))
-    duration_minutes = data.get("duration_minutes")
+    duration_hours = data.get("duration_hours")
     try:
-        duration_minutes = int(duration_minutes) if duration_minutes else None
+        duration_hours = int(duration_hours) if duration_hours else None
     except (TypeError, ValueError):
-        duration_minutes = None
+        duration_hours = None
     completed = 1 if data.get("completed") else 0
     paid = 1 if data.get("paid") else 0
     conn = get_db()
     conn.execute("""
         UPDATE services
         SET service_date=?, service_time=?, type=?, price=?, notes=?,
-            completed=?, paid=?, amount_paid=?, duration_minutes=?
+            completed=?, paid=?, amount_paid=?, duration_hours=?
         WHERE id=?
     """, (
         data.get("service_date", ""), service_time, data.get("type", ""),
         price, data.get("notes", ""), completed, paid, amount_paid,
-        duration_minutes, id,
+        duration_hours, id,
     ))
     conn.commit()
     conn.close()
@@ -954,15 +991,15 @@ def api_service_complete(id):
     completed = int(request.form.get("completed", 0))
     paid = int(request.form.get("paid", 0))
     amount_paid = _parse_price(request.form.get("amount_paid", ""))
-    duration_minutes = request.form.get("duration_minutes", "")
+    duration_hours = request.form.get("duration_hours", "")
     try:
-        duration_minutes = int(duration_minutes) if duration_minutes else None
+        duration_hours = int(duration_hours) if duration_hours else None
     except ValueError:
-        duration_minutes = None
+        duration_hours = None
     conn = get_db()
     conn.execute("""
-        UPDATE services SET completed=?, paid=?, amount_paid=?, duration_minutes=? WHERE id=?
-    """, (completed, paid, amount_paid, duration_minutes, id))
+        UPDATE services SET completed=?, paid=?, amount_paid=?, duration_hours=? WHERE id=?
+    """, (completed, paid, amount_paid, duration_hours, id))
     conn.commit()
     conn.close()
     return jsonify({"status": "ok"})
@@ -1331,6 +1368,100 @@ def api_goals_delete(id):
     conn.commit()
     conn.close()
     return jsonify({"status": "ok"})
+
+# Calendar
+@app.route("/calendar/<token>.ics")
+def calendar_feed(token):
+
+    conn = get_db()
+
+    row = conn.execute(
+        """
+        SELECT value
+        FROM settings
+        WHERE key='cal_token'
+          AND value=?
+        """,
+        (token,)
+    ).fetchone()
+
+    if not row:
+        conn.close()
+        return "", 404
+
+    services = conn.execute("""
+        SELECT
+            s.id,
+            s.service_date,
+            s.service_time,
+            s.type,
+            s.price,
+            q.customer,
+            q.phone,
+            q.windows,
+            h.address
+        FROM services s
+        JOIN quotes q
+            ON q.id = s.quote_id
+        JOIN houses h
+            ON h.id = q.house_id
+        WHERE s.service_date IS NOT NULL
+          AND s.service_date != ''
+        ORDER BY s.service_date, s.service_time
+    """).fetchall()
+
+    cal = Calendar()
+    cal.add("prodid", "-//Window Cleaning Schedule//EN")
+
+    for svc in services:
+
+        try:
+            start = datetime.strptime(
+                f"{svc['service_date']} {svc['service_time'] or '09:00'}",
+                "%Y-%m-%d %H:%M"
+            )
+        except Exception:
+            continue
+
+        duration = estimate_service_hours(
+            svc["windows"]
+        )
+
+        end = start + timedelta(minutes=duration/60)
+
+        event = Event()
+
+        event.add(
+            "uid",
+            f"service-{svc['id']}@windowcleaner"
+        )
+
+        event.add("dtstart", start)
+        event.add("dtend", end)
+
+        event.add(
+            "summary",
+            f"{svc['customer']} - {svc['windows']} windows"
+        )
+
+        description = (
+            f"Address: {svc['address']}\n"
+            f"Phone: {svc['phone']}\n"
+            f"Service: {svc['type']}\n"
+            f"Price: ${svc['price']}"
+        )
+
+        event.add("description", description)
+        event.add("location", svc["address"])
+
+        cal.add_component(event)
+
+    conn.close()
+
+    return Response(
+        cal.to_ical(),
+        mimetype="text/calendar"
+    )
 
 
 if __name__ == "__main__":
