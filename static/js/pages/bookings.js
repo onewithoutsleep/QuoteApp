@@ -395,7 +395,8 @@ function setupSwipeGestures(root, navigate) {
 
     // Ignore diagonal scrolls or short accidental micro-swipes
     if (Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 50) return;
-
+    // Ignore swipes in top header
+    if (startY < 110) return;
     const direction = dx < 0 ? 'left' : 'right';
     const base = state.activeDate || state.todayStr;
     const d = new Date(base + 'T00:00:00');

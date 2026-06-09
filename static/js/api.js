@@ -59,3 +59,11 @@ export const updateService = (id, data) => request('PUT', `/api/services/${id}`,
 export const deleteService = (id) => request('DELETE', `/api/services/${id}`);
 export const completeService = (id, form) => request('POST', `/api/services/${id}/complete`, form);
 export const updateHouseAddress = (id, address) => request('POST', `/api/houses/${id}/address`, {address}) ;
+
+export const getGoals      = ()      => request('GET',    '/api/goals');
+export const createGoal    = (data)  => request('POST',   '/api/goals',      data);
+export const updateGoal    = (id, data) => request('PUT', `/api/goals/${id}`, data);
+export const deleteGoal    = (id)    => request('DELETE', `/api/goals/${id}`);
+ 
+export const getProfile    = ()      => request('GET',    '/api/profile');
+export const updateProfile = (data)  => request('PUT',    '/api/profile', data);

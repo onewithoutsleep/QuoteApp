@@ -3,6 +3,7 @@ import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 import { fmtPrice } from '../utils.js';
 
+
 export const statsPage = {
   async mount({ root, slots }) {
     renderNav(slots.nav, 'stats');
@@ -22,7 +23,7 @@ export const statsPage = {
   unmount() {},
 };
 
-function renderStats(d) {
+export function renderStats(d) {
   const funnelMax = d.total_houses > 0 ? d.total_houses : 1;
   const pct = (n) => Math.round((n / funnelMax) * 100);
 

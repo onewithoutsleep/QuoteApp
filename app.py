@@ -212,14 +212,33 @@ def get_db(username=None):
             notes       TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS goals (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            title           TEXT NOT NULL,
+            description     TEXT,
+            metric          TEXT NOT NULL,
+            target_value    REAL NOT NULL,
+            goal_type       TEXT NOT NULL,
+            period_type     TEXT,
+            start_date      TEXT NOT NULL,
+            end_date        TEXT,
+            active          INTEGER DEFAULT 1
+        )
+    """)
     conn.commit()
 
-    # _migrate(conn)
+    _migrate(conn)
     return conn
 
 
 def _migrate(conn):
-    return None
+    # Add created_at to services if missing; back-fill from service_date.
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(services)").fetchall()]
+    if "created_at" not in cols:
+        conn.execute("ALTER TABLE services ADD COLUMN created_at TEXT")
+        conn.execute("UPDATE services SET created_at = service_date WHERE created_at IS NULL")
+        conn.commit()
 # -----------------------------
 # SETTING HELPERS
 # -----------------------------
@@ -351,6 +370,7 @@ def logout():
 @app.route("/bookings")
 @app.route("/expenses")
 @app.route("/stats")
+@app.route("/profile")
 @app.route("/settings")
 @app.route("/quote/new")
 @app.route("/edit/<int:id>")
@@ -855,13 +875,15 @@ def api_service_create():
     data = request.get_json(force=True)
     service_time = _parse_service_time(data)
     price = _parse_price(data.get("price"))
+    created_at = date.today().isoformat()
     conn = get_db()
     conn.execute("""
-        INSERT INTO services (quote_id, service_date, service_time, type, price, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO services (quote_id, service_date, service_time, type, price, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
         int(data["quote_id"]), data.get("service_date", ""),
         service_time, data.get("type", ""), price, data.get("notes", ""),
+        created_at,
     ))
     conn.commit()
     conn.close()
@@ -998,6 +1020,317 @@ def text_quote(id):
         both=q["both_price"],
     )
     return redirect(f"sms:{q['phone']}?body={quote(body)}")
+
+
+# -----------------------------
+# PROFILE
+# -----------------------------
+PROFILE_KEYS = ["name", "company", "role", "email", "phone", "cal_token"]
+
+
+def get_profile_data():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT key, value FROM settings WHERE key IN ({})".format(
+            ",".join("?" * len(PROFILE_KEYS))
+        ),
+        PROFILE_KEYS,
+    ).fetchall()
+    conn.close()
+    data = {k: "" for k in PROFILE_KEYS}
+    for r in rows:
+        data[r["key"]] = r["value"] or ""
+    return data
+
+
+@app.route("/api/profile")
+@api_login_required
+def api_profile_get():
+    import secrets
+    data = get_profile_data()
+
+    # Auto-generate a calendar token the first time
+    if not data.get("cal_token"):
+        token = secrets.token_urlsafe(24)
+        conn = get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("cal_token", token),
+        )
+        conn.commit()
+        conn.close()
+        data["cal_token"] = token
+
+    conn = get_db()
+    today = date.today()
+    goal_rows = conn.execute(
+        "SELECT * FROM goals WHERE active=1 ORDER BY id"
+    ).fetchall()
+    goals = [_enrich_goal(conn, g, today) for g in goal_rows]
+    conn.close()
+    data["goals"] = goals
+    return jsonify(data)
+
+
+@app.route("/api/profile", methods=["PUT"])
+@api_login_required
+def api_profile_put():
+    data = request.get_json(force=True)
+    conn = get_db()
+    for key in PROFILE_KEYS:
+        if key == "cal_token":
+            continue  # never overwrite from client
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (key, data.get(key, "").strip()),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+# -----------------------------
+# GOALS
+# -----------------------------
+
+METRIC_LABELS = {
+    "doors_knocked":    "Doors Knocked",
+    "quotes_given":     "Quotes Given",
+    "jobs_booked":      "Jobs Booked",
+    "revenue":          "Revenue",
+    "profit":           "Profit",
+    "revenue_pipeline": "Revenue Pipeline",
+}
+
+
+def _goal_period_window(goal, today=None):
+    """
+    Return (period_start, period_end) ISO strings for the *current* period of a
+    recurring goal, or (start_date, end_date) for a one-time goal.
+    Week starts on Monday.
+    """
+    if today is None:
+        today = date.today()
+
+    goal_type   = goal["goal_type"]
+    period_type = goal["period_type"]
+    start_date  = date.fromisoformat(goal["start_date"])
+
+    if goal_type == "one_time":
+        end = date.fromisoformat(goal["end_date"]) if goal["end_date"] else today
+        return start_date.isoformat(), end.isoformat()
+
+    # recurring — find current period window
+    if period_type == "daily":
+        return today.isoformat(), today.isoformat()
+
+    if period_type == "weekly":
+        # Monday of the current week
+        week_start = today - timedelta(days=today.weekday())
+        week_end   = week_start + timedelta(days=6)
+        return week_start.isoformat(), week_end.isoformat()
+
+    if period_type == "monthly":
+        month_start = today.replace(day=1)
+        # last day of month
+        if today.month == 12:
+            month_end = today.replace(day=31)
+        else:
+            month_end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        return month_start.isoformat(), month_end.isoformat()
+
+    if period_type == "yearly":
+        return today.replace(month=1, day=1).isoformat(), today.replace(month=12, day=31).isoformat()
+
+    return start_date.isoformat(), today.isoformat()
+
+
+def _compute_goal_progress(conn, goal, today=None):
+    """
+    Query the appropriate table(s) and return a dict with:
+      current_value  — the primary number used for % progress
+      collected      — paid amount (revenue_pipeline only)
+      pending        — booked-but-not-paid amount (revenue_pipeline only)
+    All other metrics return collected=None, pending=None.
+    """
+    if today is None:
+        today = date.today()
+
+    period_start, period_end = _goal_period_window(goal, today)
+    metric = goal["metric"]
+
+    if metric == "doors_knocked":
+        row = conn.execute(
+            "SELECT COUNT(*) FROM houses "
+            "WHERE date(knocked_at) BETWEEN ? AND ?",
+            (period_start, period_end),
+        ).fetchone()
+        return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
+
+    if metric == "quotes_given":
+        row = conn.execute(
+            "SELECT COUNT(*) FROM quotes "
+            "WHERE quote_date BETWEEN ? AND ?",
+            (period_start, period_end),
+        ).fetchone()
+        return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
+
+    if metric == "jobs_booked":
+        row = conn.execute(
+            "SELECT COUNT(*) FROM services "
+            "WHERE date(created_at) BETWEEN ? AND ?",
+            (period_start, period_end),
+        ).fetchone()
+        return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
+
+    if metric == "revenue":
+        row = conn.execute(
+            "SELECT COALESCE(SUM(amount_paid), 0) FROM services "
+            "WHERE paid=1 AND service_date BETWEEN ? AND ?",
+            (period_start, period_end),
+        ).fetchone()
+        v = row[0] if row else 0
+        return {"current_value": v, "collected": None, "pending": None}
+
+    if metric == "profit":
+        rev_row = conn.execute(
+            "SELECT COALESCE(SUM(amount_paid), 0) FROM services "
+            "WHERE paid=1 AND service_date BETWEEN ? AND ?",
+            (period_start, period_end),
+        ).fetchone()
+        exp_row = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM expenses "
+            "WHERE expense_date BETWEEN ? AND ?",
+            (period_start, period_end),
+        ).fetchone()
+        v = (rev_row[0] if rev_row else 0) - (exp_row[0] if exp_row else 0)
+        return {"current_value": v, "collected": None, "pending": None}
+
+    if metric == "revenue_pipeline":
+        # Collected: paid jobs whose service_date is in period
+        collected_row = conn.execute(
+            "SELECT COALESCE(SUM(amount_paid), 0) FROM services "
+            "WHERE paid=1 AND service_date BETWEEN ? AND ?",
+            (period_start, period_end),
+        ).fetchone()
+        # Pending: booked (price set) but not yet paid, service_date in period
+        pending_row = conn.execute(
+            "SELECT COALESCE(SUM(price), 0) FROM services "
+            "WHERE paid=0 AND price IS NOT NULL AND service_date BETWEEN ? AND ?",
+            (period_start, period_end),
+        ).fetchone()
+        collected = collected_row[0] if collected_row else 0
+        pending   = pending_row[0]   if pending_row   else 0
+        return {
+            "current_value": collected + pending,
+            "collected":     collected,
+            "pending":       pending,
+        }
+
+    return {"current_value": 0, "collected": None, "pending": None}
+
+
+def _enrich_goal(conn, goal_row, today=None):
+    """Convert a DB row to a dict with live progress and period info attached."""
+    g = _row_dict(goal_row)
+    if today is None:
+        today = date.today()
+    progress = _compute_goal_progress(conn, g, today)
+    g["current_value"]  = progress["current_value"]
+    g["collected"]      = progress["collected"]
+    g["pending"]        = progress["pending"]
+    g["period_start"], g["period_end"] = _goal_period_window(g, today)
+    g["metric_label"]   = METRIC_LABELS.get(g["metric"], g["metric"])
+    return g
+
+
+@app.route("/api/goals")
+@api_login_required
+def api_goals_get():
+    today = date.today()
+    conn  = get_db()
+    goals = conn.execute(
+        "SELECT * FROM goals WHERE active=1 ORDER BY id"
+    ).fetchall()
+    result = [_enrich_goal(conn, g, today) for g in goals]
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/goals", methods=["POST"])
+@api_login_required
+def api_goals_post():
+    """Create a single new goal."""
+    data       = request.get_json(force=True)
+    goal_type  = data.get("goal_type", "recurring")
+    period_type = data.get("period_type") if goal_type == "recurring" else None
+    start_date = data.get("start_date") or date.today().isoformat()
+    target     = _parse_price(data.get("target_value"))
+    if not data.get("title") or not data.get("metric") or target is None:
+        return jsonify({"error": "title, metric, and target_value are required"}), 400
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO goals (title, description, metric, target_value, goal_type,
+                           period_type, start_date, end_date, active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+    """, (
+        data["title"].strip(),
+        (data.get("description") or "").strip(),
+        data["metric"],
+        target,
+        goal_type,
+        period_type,
+        start_date,
+        data.get("end_date") or None,
+    ))
+    conn.commit()
+    new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    row    = conn.execute("SELECT * FROM goals WHERE id=?", (new_id,)).fetchone()
+    result = _enrich_goal(conn, row)
+    conn.close()
+    return jsonify(result), 201
+
+
+@app.route("/api/goals/<int:id>", methods=["PUT"])
+@api_login_required
+def api_goals_put(id):
+    """Update an existing goal."""
+    data       = request.get_json(force=True)
+    goal_type  = data.get("goal_type", "recurring")
+    period_type = data.get("period_type") if goal_type == "recurring" else None
+    target     = _parse_price(data.get("target_value"))
+    conn = get_db()
+    conn.execute("""
+        UPDATE goals SET title=?, description=?, metric=?, target_value=?,
+            goal_type=?, period_type=?, start_date=?, end_date=?
+        WHERE id=?
+    """, (
+        data["title"].strip(),
+        (data.get("description") or "").strip(),
+        data["metric"],
+        target,
+        goal_type,
+        period_type,
+        data.get("start_date") or date.today().isoformat(),
+        data.get("end_date") or None,
+        id,
+    ))
+    conn.commit()
+    row    = conn.execute("SELECT * FROM goals WHERE id=?", (id,)).fetchone()
+    result = _enrich_goal(conn, row)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/goals/<int:id>", methods=["DELETE"])
+@api_login_required
+def api_goals_delete(id):
+    """Soft-delete by setting active=0."""
+    conn = get_db()
+    conn.execute("UPDATE goals SET active=0 WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":
