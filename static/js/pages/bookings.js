@@ -451,7 +451,7 @@ function openCompleteSheet(svc) {
           s.completed = completedEl.checked ? 1 : 0;
           s.paid = paidEl?.checked ? 1 : 0;
           s.amount_paid = form.get('amount_paid') ? parseFloat(form.get('amount_paid')) : null;
-          s.duration_minutes = form.get('duration_minutes') ? parseInt(form.get('duration_minutes'), 10) : null;
+          s.duration_hours = form.get('duration_hours') ? parseFloat(form.get('duration_hours'), 10) : null;
         }
       });
       rebuildDataMappings();

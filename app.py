@@ -11,6 +11,10 @@ import hashlib
 import re
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from flask import Response
+from icalendar import Calendar, Event
+import secrets
+from backend.time_est import DurationEstimator
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -37,6 +41,7 @@ else:
 
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
+estimator = DurationEstimator()
 
 AUTH_DB_PATH = "data/auth.db"
 
@@ -79,11 +84,11 @@ def api_login_required(f):
 def current_user():
     return session.get("username")
 
+# def get_estimator(user_id):
+#     if user_id not in estimator:
+#         estimator[user_id] = DurationEstimator()
 
-def user_db_path(username):
-    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", username)
-    return f"data/users/{safe}.db"
-
+#     return estimator[user_id]
 
 # -----------------------------
 # JINJA FILTERS
@@ -1052,6 +1057,440 @@ def text_quote(id):
         both=q["both_price"],
     )
     return redirect(f"sms:{q['phone']}?body={quote(body)}")
+
+
+# -----------------------------
+# PROFILE
+# -----------------------------
+PROFILE_KEYS = ["name", "company", "role", "email", "phone", "cal_token"]
+
+
+def get_profile_data():
+    uid  = current_user_id()
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT key, value FROM settings WHERE user_id=? AND key IN ({})".format(
+            ",".join("?" * len(PROFILE_KEYS))
+        ),
+        [uid] + list(PROFILE_KEYS),
+    ).fetchall()
+    conn.close()
+    data = {k: "" for k in PROFILE_KEYS}
+    for r in rows:
+        data[r["key"]] = r["value"] or ""
+    return data
+
+
+@app.route("/api/profile")
+@api_login_required
+def api_profile_get():
+    uid  = current_user_id()
+    data = get_profile_data()
+
+    if not data.get("cal_token"):
+        token = secrets.token_urlsafe(24)
+        conn  = get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, ?, ?)",
+            (uid, "cal_token", token),
+        )
+        conn.commit()
+        conn.close()
+        data["cal_token"] = token
+
+    conn      = get_db()
+    today     = date.today()
+    goal_rows = conn.execute(
+        "SELECT * FROM goals WHERE user_id=? AND active=1 ORDER BY id", (uid,)
+    ).fetchall()
+    goals = [_enrich_goal(conn, g, today) for g in goal_rows]
+    conn.close()
+    data["goals"] = goals
+    return jsonify(data)
+
+
+@app.route("/api/profile", methods=["PUT"])
+@api_login_required
+def api_profile_put():
+    uid  = current_user_id()
+    data = request.get_json(force=True)
+    conn = get_db()
+    for key in PROFILE_KEYS:
+        if key == "cal_token":
+            continue
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, ?, ?)",
+            (uid, key, data.get(key, "").strip()),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+# -----------------------------
+# GOALS
+# -----------------------------
+METRIC_LABELS = {
+    "doors_knocked": "Doors Knocked",
+    "quotes_given":  "Quotes Given",
+    "jobs_booked":   "Jobs Booked",
+    "earnings":      "Earnings",
+}
+ 
+ 
+def _goal_period_window(goal, today=None):
+    if today is None:
+        today = date.today()
+ 
+    goal_type   = goal["goal_type"]
+    period_type = goal["period_type"]
+    start_date  = date.fromisoformat(goal["start_date"])
+ 
+    if goal_type == "one_time":
+        end = date.fromisoformat(goal["end_date"]) if goal["end_date"] else today
+        return start_date.isoformat(), end.isoformat()
+ 
+    if period_type == "daily":
+        return today.isoformat(), today.isoformat()
+ 
+    if period_type == "weekly":
+        week_start = today - timedelta(days=today.weekday())
+        week_end   = week_start + timedelta(days=6)
+        return week_start.isoformat(), week_end.isoformat()
+ 
+    if period_type == "monthly":
+        month_start = today.replace(day=1)
+        if today.month == 12:
+            month_end = today.replace(day=31)
+        else:
+            month_end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        return month_start.isoformat(), month_end.isoformat()
+ 
+    if period_type == "yearly":
+        return today.replace(month=1, day=1).isoformat(), today.replace(month=12, day=31).isoformat()
+ 
+    return start_date.isoformat(), today.isoformat()
+ 
+ 
+def _compute_goal_progress(conn, goal, today=None):
+    if today is None:
+        today = date.today()
+ 
+    period_start, period_end = _goal_period_window(goal, today)
+    metric = goal["metric"]
+    uid    = goal["user_id"]
+ 
+    if metric == "doors_knocked":
+        row = conn.execute(
+            "SELECT COUNT(*) FROM houses "
+            "WHERE user_id=? AND date(knocked_at) BETWEEN ? AND ?",
+            (uid, period_start, period_end),
+        ).fetchone()
+        return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
+ 
+    if metric == "quotes_given":
+        row = conn.execute(
+            "SELECT COUNT(*) FROM quotes "
+            "WHERE user_id=? AND quote_date BETWEEN ? AND ?",
+            (uid, period_start, period_end),
+        ).fetchone()
+        return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
+ 
+    if metric == "jobs_booked":
+        row = conn.execute(
+            "SELECT COUNT(*) FROM services "
+            "WHERE user_id=? AND date(created_at) BETWEEN ? AND ?",
+            (uid, period_start, period_end),
+        ).fetchone()
+        return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
+ 
+    if metric == "earnings":
+        collected = conn.execute(
+            "SELECT COALESCE(SUM(amount_paid), 0) FROM services "
+            "WHERE user_id=? AND paid=1 AND service_date BETWEEN ? AND ?",
+            (uid, period_start, period_end),
+        ).fetchone()[0]
+        pending = conn.execute(
+            "SELECT COALESCE(SUM(price), 0) FROM services "
+            "WHERE user_id=? AND paid=0 AND price IS NOT NULL AND service_date BETWEEN ? AND ?",
+            (uid, period_start, period_end),
+        ).fetchone()[0]
+        return {
+            "current_value": collected + pending,
+            "collected":     collected,
+            "pending":       pending
+        }
+  
+    return {"current_value": 0, "collected": None, "pending": None}
+
+
+def _enrich_goal(conn, goal_row, today=None):
+    g = _row_dict(goal_row)
+    if today is None:
+        today = date.today()
+    progress = _compute_goal_progress(conn, g, today)
+    g["current_value"] = progress["current_value"]
+    g["collected"]     = progress["collected"]
+    g["pending"]       = progress["pending"]
+    g["period_start"], g["period_end"] = _goal_period_window(g, today)
+    g["metric_label"]  = METRIC_LABELS.get(g["metric"], g["metric"])
+    return g
+
+@app.route("/api/goals")
+@api_login_required
+def api_goals_get():
+    uid   = current_user_id()
+    today = date.today()
+    conn  = get_db()
+    goals = conn.execute(
+        "SELECT * FROM goals WHERE user_id=? AND active=1 ORDER BY id", (uid,)
+    ).fetchall()
+    result = [_enrich_goal(conn, g, today) for g in goals]
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/goals", methods=["POST"])
+@api_login_required
+def api_goals_post():
+    uid         = current_user_id()
+    data        = request.get_json(force=True)
+    goal_type   = data.get("goal_type", "recurring")
+    period_type = data.get("period_type") if goal_type == "recurring" else None
+    start_date  = data.get("start_date") or date.today().isoformat()
+    target      = _parse_price(data.get("target_value"))
+    if not data.get("metric") or target is None:
+        return jsonify({"error": "metric and target_value are required"}), 400
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO goals (user_id, description, metric, target_value, goal_type,
+                           period_type, start_date, end_date, active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+    """, (
+        uid,
+        (data.get("description") or "").strip(),
+        data["metric"],
+        target,
+        goal_type,
+        period_type,
+        start_date,
+        data.get("end_date") or None,
+    ))
+    conn.commit()
+    new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    row    = conn.execute("SELECT * FROM goals WHERE id=?", (new_id,)).fetchone()
+    result = _enrich_goal(conn, row)
+    conn.close()
+    return jsonify(result), 201
+
+
+@app.route("/api/goals/<int:id>", methods=["PUT"])
+@api_login_required
+def api_goals_put(id):
+    uid         = current_user_id()
+    data        = request.get_json(force=True)
+    goal_type   = data.get("goal_type", "recurring")
+    period_type = data.get("period_type") if goal_type == "recurring" else None
+    target      = _parse_price(data.get("target_value"))
+    conn = get_db()
+    conn.execute("""
+        UPDATE goals SET description=?, metric=?, target_value=?,
+            goal_type=?, period_type=?, start_date=?, end_date=?
+        WHERE id=? AND user_id=?
+    """, (
+        (data.get("description") or "").strip(),
+        data["metric"],
+        target,
+        goal_type,
+        period_type,
+        data.get("start_date") or date.today().isoformat(),
+        data.get("end_date") or None,
+        id, uid,
+    ))
+    conn.commit()
+    row    = conn.execute("SELECT * FROM goals WHERE id=?", (id,)).fetchone()
+    result = _enrich_goal(conn, row)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/goals/<int:id>", methods=["DELETE"])
+@api_login_required
+def api_goals_delete(id):
+    uid  = current_user_id()
+    conn = get_db()
+    conn.execute("UPDATE goals SET active=0 WHERE id=? AND user_id=?", (id, uid))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+# -----------------------------
+# CALENDAR EVENTS API
+# -----------------------------
+@app.route("/api/calendar")
+@api_login_required
+def api_calendar_list():
+    uid  = current_user_id()
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM calendar_events WHERE user_id=? ORDER BY start_dt",
+        (uid,)
+    ).fetchall()
+    conn.close()
+    return jsonify([_row_dict(r) for r in rows])
+
+
+@app.route("/api/calendar", methods=["POST"])
+@api_login_required
+def api_calendar_create():
+    uid  = current_user_id()
+    data = request.get_json(force=True)
+    if not data.get("title") or not data.get("start_dt"):
+        return jsonify({"error": "title and start_dt are required"}), 400
+    now  = datetime.now().isoformat()
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO calendar_events
+            (user_id, title, description, location, start_dt, end_dt,
+             all_day, service_id, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, (
+        uid,
+        data["title"].strip(),
+        (data.get("description") or "").strip(),
+        (data.get("location") or "").strip(),
+        data["start_dt"],
+        data.get("end_dt") or None,
+        1 if data.get("all_day") else 0,
+        data.get("service_id") or None,
+        now, now,
+    ))
+    conn.commit()
+    new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    row    = conn.execute("SELECT * FROM calendar_events WHERE id=?", (new_id,)).fetchone()
+    conn.close()
+    return jsonify(_row_dict(row)), 201
+
+
+@app.route("/api/calendar/<int:id>", methods=["PUT"])
+@api_login_required
+def api_calendar_update(id):
+    uid  = current_user_id()
+    data = request.get_json(force=True)
+    now  = datetime.now().isoformat()
+    conn = get_db()
+    conn.execute("""
+        UPDATE calendar_events
+        SET title=?, description=?, location=?, start_dt=?, end_dt=?,
+            all_day=?, service_id=?, updated_at=?
+        WHERE id=? AND user_id=?
+    """, (
+        data["title"].strip(),
+        (data.get("description") or "").strip(),
+        (data.get("location") or "").strip(),
+        data["start_dt"],
+        data.get("end_dt") or None,
+        1 if data.get("all_day") else 0,
+        data.get("service_id") or None,
+        now, id, uid,
+    ))
+    conn.commit()
+    row = conn.execute("SELECT * FROM calendar_events WHERE id=?", (id,)).fetchone()
+    conn.close()
+    return jsonify(_row_dict(row))
+
+
+@app.route("/api/calendar/<int:id>", methods=["DELETE"])
+@api_login_required
+def api_calendar_delete(id):
+    uid  = current_user_id()
+    conn = get_db()
+    conn.execute("DELETE FROM calendar_events WHERE id=? AND user_id=?", (id, uid))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+# -----------------------------
+# ICAL FEED
+# -----------------------------
+@app.route("/calendar/<token>.ics")
+def calendar_feed(token):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT user_id FROM settings WHERE key='cal_token' AND value=?",
+        (token,)
+    ).fetchone()
+
+    if not row:
+        conn.close()
+        return "", 404
+
+    uid = row["user_id"]
+
+    services = conn.execute("""
+        SELECT
+            s.id,
+            s.service_date,
+            s.service_time,
+            s.type,
+            s.price,
+            s.duration_hours,
+            q.customer,
+            q.phone,
+            q.windows,
+            h.address
+        FROM services s
+        JOIN quotes q ON q.id = s.quote_id
+        JOIN houses h ON h.id = q.house_id
+        WHERE s.user_id=?
+          AND s.service_date IS NOT NULL
+          AND s.service_date != ''
+        ORDER BY s.service_date, s.service_time
+    """, (uid,)).fetchall()
+
+    cal = Calendar()
+    cal.add("prodid", "-//Window Cleaning Schedule//EN")
+    
+    for svc in services:
+        try:
+            start = datetime.strptime(
+                f"{svc['service_date']} {svc['service_time'] or '09:00'}",
+                "%Y-%m-%d %H:%M"
+            )
+        except Exception:
+            continue
+        
+        if "duration_hours" in svc and svc["duration_hours"] is not None:
+            duration = svc["duration_hours"]
+        else:
+            duration = estimator.estimate(
+                conn,
+                uid,
+                svc["windows"],
+                svc["type"]
+            )
+
+        duration_round = round(duration * 4) / 4 # round to nearest 15 min
+        end = start + timedelta(hours=duration_round)
+
+        event = Event()
+        event.add("uid", f"service-{svc['id']}@windowcleaner")
+        event.add("dtstart", start)
+        event.add("dtend", end)
+        event.add("summary", f"{svc['customer']} - {svc['windows']} windows")
+        event.add("description", (
+            f"Address: {svc['address']}\n"
+            f"Phone: {svc['phone']}\n"
+            f"Service: {svc['type']}\n"
+            f"Price: ${svc['price']}"
+        ))
+        event.add("location", svc["address"])
+        cal.add_component(event)
+
+    conn.close()
+    return Response(cal.to_ical(), mimetype="text/calendar")
 
 
 if __name__ == "__main__":

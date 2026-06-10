@@ -168,8 +168,8 @@ function renderCompletionSection(service) {
       </label>
     </div>
     <div class="payment-fields" id="paymentFields" style="${service.completed ? '' : 'display:none'}">
-      <label class="field-label">Minutes</label>
-      <input type="number" name="duration_minutes" value="${service.duration_minutes || ''}">
+      <label class="field-label">Hours</label>
+      <input type="number" name="duration_hours" step="0.1" value="${service.duration_hours || ''}">
       <div class="toggle-row">
         <span class="toggle-label">Paid</span>
         <label class="toggle-switch">
