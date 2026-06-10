@@ -34,7 +34,6 @@ export function renderStats(d) {
       <div class="stat-box red"><div class="val">$${fmtPrice(d.total_expenses)}</div><div class="lbl">Total Expenses</div></div>
       <div class="stat-box"><div class="val">$${fmtPrice(d.total_billed)}</div><div class="lbl">Total Billed</div></div>
       <div class="stat-box ${d.net_profit >= 0 ? 'green' : 'red'}"><div class="val">$${fmtPrice(d.net_profit)}</div><div class="lbl">Net Profit</div></div>
-      ${d.avg_duration ? `<div class="stat-box purple"><div class="val">${Math.round(d.avg_duration)} min</div><div class="lbl">Avg Job Duration</div></div>` : ''}
     </div>
     <div class="section-title">Pipeline Funnel</div>
     ${funnelRow('Knocked', d.total_houses, 100, '#2d89ef')}

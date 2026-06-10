@@ -115,7 +115,6 @@ def get_db():
         CREATE TABLE IF NOT EXISTS goals (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            title        TEXT NOT NULL,
             description  TEXT,
             metric       TEXT NOT NULL,
             target_value REAL NOT NULL,
@@ -148,6 +147,11 @@ def get_db():
             updated_at  TEXT
         );
     """)
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(goals)")]
+
+    if "title" in cols:
+        conn.execute("ALTER TABLE goals DROP COLUMN title")
+
     conn.commit()
     return conn
 
@@ -1157,35 +1161,33 @@ def api_profile_put():
 # GOALS
 # -----------------------------
 METRIC_LABELS = {
-    "doors_knocked":    "Doors Knocked",
-    "quotes_given":     "Quotes Given",
-    "jobs_booked":      "Jobs Booked",
-    "revenue":          "Revenue",
-    "profit":           "Profit",
-    "revenue_pipeline": "Revenue Pipeline",
+    "doors_knocked": "Doors Knocked",
+    "quotes_given":  "Quotes Given",
+    "jobs_booked":   "Jobs Booked",
+    "earnings":      "Earnings",
 }
-
-
+ 
+ 
 def _goal_period_window(goal, today=None):
     if today is None:
         today = date.today()
-
+ 
     goal_type   = goal["goal_type"]
     period_type = goal["period_type"]
     start_date  = date.fromisoformat(goal["start_date"])
-
+ 
     if goal_type == "one_time":
         end = date.fromisoformat(goal["end_date"]) if goal["end_date"] else today
         return start_date.isoformat(), end.isoformat()
-
+ 
     if period_type == "daily":
         return today.isoformat(), today.isoformat()
-
+ 
     if period_type == "weekly":
         week_start = today - timedelta(days=today.weekday())
         week_end   = week_start + timedelta(days=6)
         return week_start.isoformat(), week_end.isoformat()
-
+ 
     if period_type == "monthly":
         month_start = today.replace(day=1)
         if today.month == 12:
@@ -1193,21 +1195,21 @@ def _goal_period_window(goal, today=None):
         else:
             month_end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
         return month_start.isoformat(), month_end.isoformat()
-
+ 
     if period_type == "yearly":
         return today.replace(month=1, day=1).isoformat(), today.replace(month=12, day=31).isoformat()
-
+ 
     return start_date.isoformat(), today.isoformat()
-
-
+ 
+ 
 def _compute_goal_progress(conn, goal, today=None):
     if today is None:
         today = date.today()
-
+ 
     period_start, period_end = _goal_period_window(goal, today)
-    metric  = goal["metric"]
-    uid     = goal["user_id"]
-
+    metric = goal["metric"]
+    uid    = goal["user_id"]
+ 
     if metric == "doors_knocked":
         row = conn.execute(
             "SELECT COUNT(*) FROM houses "
@@ -1215,7 +1217,7 @@ def _compute_goal_progress(conn, goal, today=None):
             (uid, period_start, period_end),
         ).fetchone()
         return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
-
+ 
     if metric == "quotes_given":
         row = conn.execute(
             "SELECT COUNT(*) FROM quotes "
@@ -1223,7 +1225,7 @@ def _compute_goal_progress(conn, goal, today=None):
             (uid, period_start, period_end),
         ).fetchone()
         return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
-
+ 
     if metric == "jobs_booked":
         row = conn.execute(
             "SELECT COUNT(*) FROM services "
@@ -1231,48 +1233,24 @@ def _compute_goal_progress(conn, goal, today=None):
             (uid, period_start, period_end),
         ).fetchone()
         return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
-
-    if metric == "revenue":
-        row = conn.execute(
+ 
+    if metric == "earnings":
+        collected = conn.execute(
             "SELECT COALESCE(SUM(amount_paid), 0) FROM services "
             "WHERE user_id=? AND paid=1 AND service_date BETWEEN ? AND ?",
             (uid, period_start, period_end),
-        ).fetchone()
-        return {"current_value": row[0] if row else 0, "collected": None, "pending": None}
-
-    if metric == "profit":
-        rev_row = conn.execute(
-            "SELECT COALESCE(SUM(amount_paid), 0) FROM services "
-            "WHERE user_id=? AND paid=1 AND service_date BETWEEN ? AND ?",
-            (uid, period_start, period_end),
-        ).fetchone()
-        exp_row = conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM expenses "
-            "WHERE user_id=? AND expense_date BETWEEN ? AND ?",
-            (uid, period_start, period_end),
-        ).fetchone()
-        v = (rev_row[0] if rev_row else 0) - (exp_row[0] if exp_row else 0)
-        return {"current_value": v, "collected": None, "pending": None}
-
-    if metric == "revenue_pipeline":
-        collected_row = conn.execute(
-            "SELECT COALESCE(SUM(amount_paid), 0) FROM services "
-            "WHERE user_id=? AND paid=1 AND service_date BETWEEN ? AND ?",
-            (uid, period_start, period_end),
-        ).fetchone()
-        pending_row = conn.execute(
+        ).fetchone()[0]
+        pending = conn.execute(
             "SELECT COALESCE(SUM(price), 0) FROM services "
             "WHERE user_id=? AND paid=0 AND price IS NOT NULL AND service_date BETWEEN ? AND ?",
             (uid, period_start, period_end),
-        ).fetchone()
-        collected = collected_row[0] if collected_row else 0
-        pending   = pending_row[0]   if pending_row   else 0
+        ).fetchone()[0]
         return {
             "current_value": collected + pending,
             "collected":     collected,
-            "pending":       pending,
+            "pending":       pending
         }
-
+  
     return {"current_value": 0, "collected": None, "pending": None}
 
 
@@ -1281,13 +1259,12 @@ def _enrich_goal(conn, goal_row, today=None):
     if today is None:
         today = date.today()
     progress = _compute_goal_progress(conn, g, today)
-    g["current_value"]  = progress["current_value"]
-    g["collected"]      = progress["collected"]
-    g["pending"]        = progress["pending"]
+    g["current_value"] = progress["current_value"]
+    g["collected"]     = progress["collected"]
+    g["pending"]       = progress["pending"]
     g["period_start"], g["period_end"] = _goal_period_window(g, today)
-    g["metric_label"]   = METRIC_LABELS.get(g["metric"], g["metric"])
+    g["metric_label"]  = METRIC_LABELS.get(g["metric"], g["metric"])
     return g
-
 
 @app.route("/api/goals")
 @api_login_required
@@ -1306,22 +1283,21 @@ def api_goals_get():
 @app.route("/api/goals", methods=["POST"])
 @api_login_required
 def api_goals_post():
-    uid        = current_user_id()
-    data       = request.get_json(force=True)
-    goal_type  = data.get("goal_type", "recurring")
+    uid         = current_user_id()
+    data        = request.get_json(force=True)
+    goal_type   = data.get("goal_type", "recurring")
     period_type = data.get("period_type") if goal_type == "recurring" else None
-    start_date = data.get("start_date") or date.today().isoformat()
-    target     = _parse_price(data.get("target_value"))
-    if not data.get("title") or not data.get("metric") or target is None:
-        return jsonify({"error": "title, metric, and target_value are required"}), 400
+    start_date  = data.get("start_date") or date.today().isoformat()
+    target      = _parse_price(data.get("target_value"))
+    if not data.get("metric") or target is None:
+        return jsonify({"error": "metric and target_value are required"}), 400
     conn = get_db()
     conn.execute("""
-        INSERT INTO goals (user_id, title, description, metric, target_value, goal_type,
+        INSERT INTO goals (user_id, description, metric, target_value, goal_type,
                            period_type, start_date, end_date, active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
     """, (
         uid,
-        data["title"].strip(),
         (data.get("description") or "").strip(),
         data["metric"],
         target,
@@ -1341,18 +1317,17 @@ def api_goals_post():
 @app.route("/api/goals/<int:id>", methods=["PUT"])
 @api_login_required
 def api_goals_put(id):
-    uid        = current_user_id()
-    data       = request.get_json(force=True)
-    goal_type  = data.get("goal_type", "recurring")
+    uid         = current_user_id()
+    data        = request.get_json(force=True)
+    goal_type   = data.get("goal_type", "recurring")
     period_type = data.get("period_type") if goal_type == "recurring" else None
-    target     = _parse_price(data.get("target_value"))
+    target      = _parse_price(data.get("target_value"))
     conn = get_db()
     conn.execute("""
-        UPDATE goals SET title=?, description=?, metric=?, target_value=?,
+        UPDATE goals SET description=?, metric=?, target_value=?,
             goal_type=?, period_type=?, start_date=?, end_date=?
         WHERE id=? AND user_id=?
     """, (
-        data["title"].strip(),
         (data.get("description") or "").strip(),
         data["metric"],
         target,
