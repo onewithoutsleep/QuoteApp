@@ -14,6 +14,7 @@ from functools import wraps
 from flask import Response
 from icalendar import Calendar, Event
 import secrets
+from backend.time_est import DurationEstimator
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -40,6 +41,7 @@ else:
 
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
+estimator = DurationEstimator()
 
 DB_PATH = "data/app.db"
 
@@ -190,6 +192,11 @@ def api_login_required(f):
 def current_user():
     return session.get("username")
 
+# def get_estimator(user_id):
+#     if user_id not in estimator:
+#         estimator[user_id] = DurationEstimator()
+
+#     return estimator[user_id]
 
 # -----------------------------
 # JINJA FILTERS
@@ -310,10 +317,6 @@ def get_house_or_404(conn, house_id, user_id):
         "SELECT * FROM houses WHERE id=? AND user_id=?", (house_id, user_id)
     ).fetchone()
     return row
-
-
-def estimate_service_hours(num_windows):
-    return 0.5 + num_windows / 10
 
 
 # -----------------------------
@@ -1462,6 +1465,7 @@ def calendar_feed(token):
             s.service_time,
             s.type,
             s.price,
+            s.duration_hours,
             q.customer,
             q.phone,
             q.windows,
@@ -1477,7 +1481,7 @@ def calendar_feed(token):
 
     cal = Calendar()
     cal.add("prodid", "-//Window Cleaning Schedule//EN")
-
+    
     for svc in services:
         try:
             start = datetime.strptime(
@@ -1486,9 +1490,19 @@ def calendar_feed(token):
             )
         except Exception:
             continue
+        
+        if "duration_hours" in svc and svc["duration_hours"] is not None:
+            duration = svc["duration_hours"]
+        else:
+            duration = estimator.estimate(
+                conn,
+                uid,
+                svc["windows"],
+                svc["type"]
+            )
 
-        duration = estimate_service_hours(svc["windows"])
-        end = start + timedelta(hours=duration)
+        duration_round = round(duration * 4) / 4 # round to nearest 15 min
+        end = start + timedelta(hours=duration_round)
 
         event = Event()
         event.add("uid", f"service-{svc['id']}@windowcleaner")
