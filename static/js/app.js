@@ -7,7 +7,6 @@ import { quotesPage } from './pages/quotes.js';
 import { mapPage } from './pages/map.js';
 import { bookingsPage } from './pages/bookings.js';
 import { expensesPage } from './pages/expenses.js';
-import { statsPage } from './pages/stats.js';
 import { profilePage } from './pages/profile.js';
 import { quoteFormPage } from './pages/quote-form.js';
 import { serviceFormPage } from './pages/service-form.js';
@@ -27,7 +26,6 @@ const routes = [
   { pattern: /^\/map$/, page: mapPage },
   { pattern: /^\/bookings$/, page: bookingsPage },
   { pattern: /^\/expenses$/, page: expensesPage },
-  { pattern: /^\/stats$/, page: statsPage },
   { pattern: /^\/profile$/, page: profilePage },
   { pattern: /^\/settings$/, page: settingsPage },
   { pattern: /^\/quotes\/new$/, page: quoteFormPage },
@@ -111,7 +109,7 @@ async function boot() {
       '/map': '#/map',
       '/bookings': '#/bookings',
       '/expenses': '#/expenses',
-      '/stats': '#/stats',
+      '/profile': '#/profile',
       '/settings': '#/settings',
       '/quote/new': '#/quotes/new',
     };

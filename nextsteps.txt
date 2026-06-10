@@ -1,6 +1,0 @@
-- change move map button to inside popup and it moves dot currently on 
-- remove settings, a place to edit price per window should be in quote form
-- make it so when click on map button instead of the selected dot being orange make it still whatever the colour is and just indicate it with the normal popup
-- connect to calander
-- add see dot
-- change name of index.html to quotes.html

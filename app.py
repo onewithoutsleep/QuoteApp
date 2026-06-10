@@ -147,10 +147,6 @@ def get_db():
             updated_at  TEXT
         );
     """)
-    cols = [row[1] for row in conn.execute("PRAGMA table_info(goals)")]
-
-    if "title" in cols:
-        conn.execute("ALTER TABLE goals DROP COLUMN title")
 
     conn.commit()
     return conn
@@ -986,7 +982,7 @@ def api_service_update(id):
     amount_paid    = _parse_price(data.get("amount_paid"))
     duration_hours = data.get("duration_hours")
     try:
-        duration_hours = int(duration_hours) if duration_hours else None
+        duration_hours = float(duration_hours) if duration_hours else None
     except (TypeError, ValueError):
         duration_hours = None
     completed = 1 if data.get("completed") else 0
@@ -1027,7 +1023,7 @@ def api_service_complete(id):
     amount_paid    = _parse_price(request.form.get("amount_paid", ""))
     duration_hours = request.form.get("duration_hours", "")
     try:
-        duration_hours = int(duration_hours) if duration_hours else None
+        duration_hours = float(duration_hours) if duration_hours else None
     except ValueError:
         duration_hours = None
     conn = get_db()

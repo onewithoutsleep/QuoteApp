@@ -126,7 +126,7 @@ function BookingCard(s, navigate) {
           ${s.windows ? `<span class="bk-badge bk-type">${s.windows} Windows</span>` : ''}
           ${isDone && !s.paid ? '<span class="bk-badge bk-unpaid">Pending Payment</span>' : ''}
           ${s.paid && amtPaid ? `<span class="bk-paid">Paid $${amtPaid}</span>` : ''}
-          ${s.completed && s.duration_hours ? `<span class="bk-badge bk-duration">${s.duration_hours} min</span>` : ''}
+          ${s.completed && s.duration_hours ? `<span class="bk-badge bk-duration">${s.duration_hours} hours</span>` : ''}
         </div>
         
         ${s.notes ? `<div class="booking-notes">"${escapeHtml(s.notes)}"</div>` : ''}
@@ -428,7 +428,7 @@ function openCompleteSheet(svc) {
       </div>
       <div id="sPaySection" style="${isComplete ? '' : 'display:none'}">
         <label class="field-label">Hours</label>
-        <input type="number" id="sDuration" class="sheet-input" placeholder="e.g. 45" value="${svc.duration_hours || ''}">
+        <input type="number" id="sDuration" class="sheet-input" placeholder="e.g. 2.5" value="${svc.duration_hours || ''}">
         <div class="toggle-row">
           <span class="toggle-label">Paid</span>
           <label class="toggle-switch">
@@ -438,7 +438,7 @@ function openCompleteSheet(svc) {
         </div>
         <div id="sAmtSection" style="${isPaid ? '' : 'display:none'}">
           <label class="field-label">Amount Paid ($)</label>
-          <input type="number" id="sAmtPaid" class="sheet-input" step="0.01" value="${svc.amount_paid || ''}">
+          <input type="number" id="sAmtPaid" class="sheet-input" step="1" value="${svc.amount_paid || ''}">
         </div>
       </div>
       <button type="button" class="sheet-save-btn">Save Changes</button>

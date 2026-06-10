@@ -4,7 +4,7 @@ import { renderNav } from '../components/nav.js';
 import { renderStats } from './stats.js';
 
 // ---------------------------------------------------------------------------
-// Metric definitions — 4 active types, 3 legacy (render-only)
+// Metric definition
 // ---------------------------------------------------------------------------
 const METRICS = [
   { value: 'doors_knocked', label: 'Doors Knocked', icon: '', desc: 'Doors knocked per period' },
@@ -78,6 +78,7 @@ function renderProfile(d, stats) {
       </div>
       <div class="profile-actions">
         <button class="profile-btn" id="edit-profile-btn">Edit Profile</button>
+        <a class="profile-btn" href="/settings">Settings</a>
         ${d.cal_token
           ? `<a class="profile-btn profile-btn-secondary"
                href="webcal://${location.host}/calendar/${esc(d.cal_token)}.ics">
@@ -100,7 +101,7 @@ function renderProfile(d, stats) {
 }
 
 // ---------------------------------------------------------------------------
-// Goal title — derived from metric + period, no stored title
+// Goal title
 // ---------------------------------------------------------------------------
 function goalTitle(g) {
   const metricLabel = g.metric_label || METRICS.find(m => m.value === g.metric)?.label || g.metric;
@@ -156,7 +157,7 @@ function renderGoalCard(g) {
     barColor = pct >= 100 ? '#27ae60' : '#2d89ef';
   }
 
-  // Earnings breakdown (new metric + legacy pipeline)
+  // Earnings breakdown
   let breakdownHtml = '';
   if (isEarnings && g.collected !== null) {
     const collected = g.collected ?? 0;
@@ -338,7 +339,7 @@ function openGoalModal(existing, onSave) {
   modal.className = 'note-modal';
 
   if (!isEdit) {
-    // Step-based: start at metric picker (or skip to step 2 if legacy edit)
+    // Step-based: start at metric picker
     let selectedMetric = existing?.metric || null;
     let step = (isEdit) ? 2 : 1;
 
