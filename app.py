@@ -1491,7 +1491,7 @@ def calendar_feed(token):
         except Exception:
             continue
         
-        if "duration_hours" in svc and svc["duration_hours"] is not None:
+        if svc["duration_hours"] is not None:
             duration = svc["duration_hours"]
         else:
             duration = estimator.estimate(
