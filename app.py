@@ -1516,7 +1516,7 @@ def calendar_feed(token):
             f"Phone: {svc['phone']}\n"
             f"Service: {svc['type']}\n"
             f"Price: ${svc['price']}"
-            + (f"\nPaid: ${svc['amount_paid']}" if svc.get('paid') == 1 else "")
+            + (f"\nPaid: ${svc['amount_paid']}" if svc['paid'] == 1 else "")
         ))
         event.add("location", svc["address"])
         cal.add_component(event)
