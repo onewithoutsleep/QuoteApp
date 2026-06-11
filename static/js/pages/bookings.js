@@ -11,24 +11,44 @@ const state = {
   todayStr: '',
   monthViewActive: false,
   activeMonth: null,
+  stripStart: -30,   // offset from today for the rendered strip window
+  stripEnd: 60,
 };
 
 // ─── LIFECYCLE ───────────────────────────────────────────────────────────────
 export const bookingsPage = {
-  async mount({ root, slots, navigate }) {
+  async mount({ root, slots, navigate, params }) {
     renderNav(slots.nav, 'bookings');
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     state.todayStr = today.toISOString().slice(0, 10);
-    state.activeDate = state.todayStr;
+
+    // Support ?date=YYYY-MM-DD when navigating here from service form
+    const dateParam = params?.date;
+    state.activeDate = (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) ? dateParam : state.todayStr;
     state.activeMonth = { year: today.getFullYear(), month: today.getMonth() };
+
+    // Ensure the strip window is centred on the active date
+    const activeDateObj = new Date(state.activeDate + 'T00:00:00');
+    const dayDiff = Math.round((activeDateObj - today) / 86400000);
+    state.stripStart = Math.min(dayDiff - 30, -30);
+    state.stripEnd   = Math.max(dayDiff + 60, 60);
 
     const cached = getState().bookings;
     root.innerHTML = BaseLayout(cached == null);
 
     root.querySelector('#monthToggleBtn').addEventListener('click', () => {
       state.monthViewActive = !state.monthViewActive;
+      toggleCalView(root, navigate);
+    });
+
+    root.querySelector('#todayBtn').addEventListener('click', () => {
+      state.activeDate = state.todayStr;
+      state.monthViewActive = false;
+      // Re-centre the strip window on today
+      state.stripStart = -30;
+      state.stripEnd = 60;
       toggleCalView(root, navigate);
     });
 
@@ -54,11 +74,15 @@ export const bookingsPage = {
       }
       console.error(err);
     }
+    
+    
   },
   unmount() {
     state.servicesRaw = [];
     state.byDate = {};
     state.monthViewActive = false;
+    state.stripStart = -30;
+    state.stripEnd = 60;
   },
 };
 
@@ -77,17 +101,23 @@ function BaseLayout(showLoading = true) {
   return `
     <div class="container bookings-page">
       <div class="cal-strip-wrap">
-        <div class="cal-header-row">
-          <div class="cal-strip" id="calStrip"></div>
+        <div class="cal-controls-row">
+          <h2>Bookings</h2>
+          <button type="button" class="today-btn" id="todayBtn" title="Go to Today">
+            Today
+          </button>
+
           <button type="button" class="month-toggle-btn" id="monthToggleBtn" title="Toggle Month View">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
             </svg>
           </button>
         </div>
+
+        <div class="cal-strip" id="calStrip"></div>
+
         <div class="cal-month-view" id="calMonthView" style="display:none;"></div>
       </div>
-      <h2>Bookings</h2>
       <div id="bookingsList">
         ${showLoading ? '<div class="empty-state"><p>Loading...</p></div>' : ''}
       </div>
@@ -177,33 +207,42 @@ function renderCalendarStrip(root, navigate) {
   strip.innerHTML = '';
   const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   const today = new Date(state.todayStr + 'T00:00:00');
-  
-  for (let i = -30; i <= 60; i++) {
+
+  const buildDayEl = (i) => {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     const ds = d.toISOString().slice(0, 10);
     const hasBookings = !!state.byDate[ds];
-    
+    const isFirst = d.getDate() === 1;
+    const monthLabel = isFirst
+      ? d.toLocaleString('default', { month: 'short' }).toUpperCase()
+      : '';
+
     const el = document.createElement('div');
     el.className = `cal-day ${ds === state.todayStr ? 'today' : ''} ${ds === state.activeDate ? 'active' : ''}`;
     el.dataset.date = ds;
-    
+    el.dataset.offset = String(i);
+
     el.innerHTML = `
-      <div class="dow">${DOW[d.getDay()]}</div>
+      <div class="dow${isFirst ? ' month-label-first' : ''}">${isFirst ? monthLabel : DOW[d.getDay()]}</div>
       <div class="dom">${d.getDate()}</div>
       ${hasBookings ? '<div class="dot"></div>' : '<div class="cal-spacer"></div>'}
     `;
-    
+
     el.addEventListener('click', () => {
       state.activeDate = state.activeDate === ds ? null : ds;
       renderCalendarStrip(root, navigate);
       renderBookingsList(root, navigate);
     });
-    
-    strip.appendChild(el);
+
+    return el;
+  };
+
+  for (let i = state.stripStart; i <= state.stripEnd; i++) {
+    strip.appendChild(buildDayEl(i));
   }
 
-  // FIXED: Precise horizontal-only scroll handling to eliminate vertical alignment jumps
+  // Scroll to active date
   const scrollTarget = strip.querySelector(`[data-date="${state.activeDate || state.todayStr}"]`);
   if (scrollTarget) {
     setTimeout(() => {
@@ -211,6 +250,60 @@ function renderCalendarStrip(root, navigate) {
       strip.scrollTo({ left: leftOffset, behavior: 'smooth' });
     }, 50);
   }
+
+  // Infinite scroll: prepend days when near left edge, append when near right edge
+  strip.addEventListener('scroll', () => {
+    if (strip.scrollLeft < 120) {
+      // Prepend 30 days
+      const prevStart = state.stripStart;
+      state.stripStart -= 30;
+      const fragment = document.createDocumentFragment();
+      for (let i = state.stripStart; i < prevStart; i++) {
+        fragment.appendChild(buildDayEl(i));
+      }
+      const firstChild = strip.firstChild;
+      const prevScrollLeft = strip.scrollLeft;
+      strip.insertBefore(fragment, firstChild);
+      // Preserve scroll position after prepend
+      const addedWidth = strip.scrollLeft - prevScrollLeft + strip.scrollLeft;
+      // Measure the width of the newly added nodes
+      let added = 0;
+      let node = strip.firstChild;
+      for (let i = state.stripStart; i < prevStart; i++) {
+        added += node.offsetWidth + 8; // 8 = gap
+        node = node.nextSibling;
+      }
+      strip.scrollLeft = prevScrollLeft + added;
+    }
+
+    if (strip.scrollLeft + strip.clientWidth > strip.scrollWidth - 120) {
+      // Append 30 days
+      const prevEnd = state.stripEnd;
+      state.stripEnd += 30;
+      for (let i = prevEnd + 1; i <= state.stripEnd; i++) {
+        strip.appendChild(buildDayEl(i));
+      }
+    }
+  }, { passive: true });
+  centerActiveDate(strip);
+}
+
+function centerActiveDate(strip) {
+  const target = strip.querySelector(
+    `[data-date="${state.activeDate || state.todayStr}"]`
+  );
+
+  if (!target) return;
+
+  const left =
+    target.offsetLeft -
+    strip.clientWidth / 2 +
+    target.clientWidth / 2;
+
+  strip.scrollTo({
+    left,
+    behavior: 'smooth'
+  });
 }
 
 function renderMonthView(root, navigate) {

@@ -145,7 +145,8 @@ export const serviceFormPage = {
       try {
         if (isEdit) await api.updateService(serviceId, payload);
         else await api.createService(payload);
-        navigate(backHash);
+        const savedDate = payload.service_date;
+        navigate(savedDate ? `${backHash}?date=${savedDate}` : backHash);
       } catch (err) {
         alert('Failed to save.');
         console.error(err);
