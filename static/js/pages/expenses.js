@@ -46,13 +46,16 @@ export const expensesPage = {
         return;
       }
       try {
-        await api.createExpense({
+        const created = await api.createExpense({
           expense_date: fd.get('expense_date'),
           category,
           description: fd.get('description'),
           amount: fd.get('amount'),
           notes: fd.get('notes'),
         });
+        const currentExpenses = getState().expenses || [];
+        if (created) setState({ expenses: [...currentExpenses, created] });
+        else setState({ expenses: null });
         e.target.reset();
         e.target.querySelector('[name="expense_date"]').value = todayISO();
         root.querySelectorAll('.cat-opt').forEach((l) => l.classList.remove('selected'));
@@ -122,8 +125,9 @@ function renderExpensesList(root, expenses) {
       if (!confirm('Delete this expense?')) return;
       try {
         await api.deleteExpense(exp.id);
-        setState({ expenses: null });
-        await loadExpenses(root);
+        const remaining = (getState().expenses || []).filter(e => e.id !== exp.id);
+        setState({ expenses: remaining });
+        renderExpensesList(root, remaining);
       } catch (err) {
         alert('Failed to delete.');
         console.error(err);

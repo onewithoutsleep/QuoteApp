@@ -1,5 +1,5 @@
 import * as api from '../api.js';
-import { getState } from '../state.js';
+import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 import { todayISO, bindRadioGroup, fmtPrice } from '../utils.js';
 
@@ -114,6 +114,18 @@ export const quoteFormPage = {
       if (!confirm('Delete this quote and its address? This cannot be undone.')) return;
       try {
         await api.deleteQuote(editId);
+        const id = parseInt(editId, 10);
+        const qs = getState().quotes;
+        const deletedQuote = qs?.find(q => q.id === id);
+        if (qs) setState({ quotes: qs.filter(q => q.id !== id) });
+        setState({ bookings: null, stats: null });
+        if (deletedQuote?.house_id) {
+          const md = getState().mapData;
+          if (md) setState({ mapData: { ...md, houses: md.houses.map(h =>
+            h.id === deletedQuote.house_id
+              ? { ...h, quote_id: null, customer: null, service_id: null }
+              : h) } });
+        }
         navigate('#/quotes');
       } catch (err) {
         alert('Failed to delete.');
@@ -139,8 +151,17 @@ export const quoteFormPage = {
         found_via: fd.get('found_via') || null,
       };
       try {
-        if (isEdit) await api.updateQuote(editId, payload);
-        else await api.createQuote(payload);
+        let savedQuote;
+        if (isEdit) savedQuote = await api.updateQuote(editId, payload);
+        else savedQuote = await api.createQuote(payload);
+        setState({ quotes: null, bookings: null, stats: null });
+        if (savedQuote?.house_id) {
+          const md = getState().mapData;
+          if (md) setState({ mapData: { ...md, houses: md.houses.map(h =>
+            h.id === savedQuote.house_id
+              ? { ...h, quote_id: savedQuote.id, customer: savedQuote.customer }
+              : h) } });
+        }
         navigate('#/quotes');
       } catch (err) {
         alert('Failed to save quote.');

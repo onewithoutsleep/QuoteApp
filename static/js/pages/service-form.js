@@ -1,4 +1,5 @@
 import * as api from '../api.js';
+import { getState, setState } from '../state.js';
 import { renderNav } from '../components/nav.js';
 import { todayISO, bindRadioGroup, fmtPrice, parseTime24, serviceTimeTo24 } from '../utils.js';
 
@@ -118,6 +119,26 @@ export const serviceFormPage = {
         if (!confirm('Delete this booking?')) return;
         try {
           await api.deleteService(serviceId);
+          const sid = parseInt(serviceId, 10);
+          const bk = getState().bookings;
+          if (bk) setState({ bookings: bk.filter(s => s.id !== sid) });
+          const qs = getState().quotes;
+          if (qs) setState({ quotes: qs.map(q => q.services
+            ? { ...q, services: q.services.filter(s => s.id !== sid) }
+            : q) });
+          setState({ stats: null });
+          // If no more services on this quote's house, clear service_id from mapData
+          const deletedSvc = service;
+          if (deletedSvc?.quote_id) {
+            const updatedQuotes = getState().quotes;
+            const parentQuote = updatedQuotes?.find(q => q.id === deletedSvc.quote_id);
+            const stillHasServices = parentQuote?.services?.length > 0;
+            if (!stillHasServices && parentQuote?.house_id) {
+              const md = getState().mapData;
+              if (md) setState({ mapData: { ...md, houses: md.houses.map(h =>
+                h.id === parentQuote.house_id ? { ...h, service_id: null } : h) } });
+            }
+          }
           navigate(backHash);
         } catch (err) {
           alert('Failed to delete.');
@@ -143,8 +164,21 @@ export const serviceFormPage = {
         duration_hours: fd.get('duration_hours'),
       };
       try {
-        if (isEdit) await api.updateService(serviceId, payload);
-        else await api.createService(payload);
+        let savedService;
+        if (isEdit) savedService = await api.updateService(serviceId, payload);
+        else savedService = await api.createService(payload);
+        setState({ bookings: null, quotes: null, stats: null });
+        // Patch mapData so the house marker turns green immediately
+        const refQuoteId = parseInt(payload.quote_id, 10);
+        const qs = getState().quotes;
+        const parentQuote = qs?.find(q => q.id === refQuoteId) || quote;
+        if (savedService?.id && parentQuote?.house_id) {
+          const md = getState().mapData;
+          if (md) setState({ mapData: { ...md, houses: md.houses.map(h =>
+            h.id === parentQuote.house_id
+              ? { ...h, service_id: savedService.id, service_date: savedService.service_date, service_time: savedService.service_time }
+              : h) } });
+        }
         const savedDate = payload.service_date;
         navigate(savedDate ? `${backHash}?date=${savedDate}` : backHash);
       } catch (err) {

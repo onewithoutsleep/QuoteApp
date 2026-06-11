@@ -14,20 +14,12 @@ export const mapPage = {
 
     root.innerHTML = '<div id="map"></div>';
 
-    if (getState().mapData) {
-      initMap(root.querySelector('#map'), getState().mapData, highlight, navigate);
-    }
-
     try {
       const data = await api.getMapData();
       setState({ mapData: data });
-      if (!mapInstance) {
-        initMap(root.querySelector('#map'), data, highlight, navigate);
-      }
+      initMap(root.querySelector('#map'), data, highlight, navigate);
     } catch (err) {
-      if (!getState().mapData) {
-        root.innerHTML = '<div class="container"><p>Failed to load map.</p></div>';
-      }
+      root.innerHTML = '<div class="container"><p>Failed to load map.</p></div>';
       console.error(err);
     }
   },
@@ -371,7 +363,12 @@ function initMap(el, data, highlightId, navigate) {
       form.append('lat', lat);
       form.append('lng', lng);
       const result = await api.moveHouse(houseId, form);
-      if (result?.status === 'ok') marker.setLatLng([lat, lng]);
+      if (result?.status === 'ok') {
+        marker.setLatLng([lat, lng]);
+        const md = getState().mapData;
+        if (md) setState({ mapData: { ...md, houses: md.houses.map(h =>
+          h.id === houseId ? { ...h, lat, lng } : h) } });
+      }
     } catch (err) { console.error('Move error:', err); }
     moveMode = false; selectedMarker = null; selectedHouseId = null;
     moveBanner.classList.remove('visible');
@@ -406,6 +403,8 @@ function initMap(el, data, highlightId, navigate) {
       const result = await api.deleteHouse(id);
       if (result?.status === 'deleted') {
         map.removeLayer(marker);
+        const md = getState().mapData;
+        if (md) setState({ mapData: { ...md, houses: md.houses.filter(h => h.id !== id) } });
       } else if (result?.status === 'has_quote') {
         alert('This house has a quote attached. Delete the quote first.');
       }
@@ -422,6 +421,9 @@ function initMap(el, data, highlightId, navigate) {
         houseData.note    = result.note;
         const color = markerColor(houseData);
         marker.setStyle({ color });
+        const md = getState().mapData;
+        if (md) setState({ mapData: { ...md, houses: md.houses.map(h =>
+          h.id === houseData.id ? { ...h, outcome: result.outcome, note: result.note } : h) } });
       }
     } catch (err) { console.error('Outcome error:', err); }
   }
@@ -508,9 +510,11 @@ function initMap(el, data, highlightId, navigate) {
           const result = await api.updateHouseAddress(houseData.id, address);
           if (result?.status === 'ok') {
             houseData.address = result.address;
-            // Determine which view is currently shown and re-render it
             const isChooser = !!el.querySelector('[data-knock]');
             swapPopupView(marker, houseData, isChooser);
+            const md = getState().mapData;
+            if (md) setState({ mapData: { ...md, houses: md.houses.map(h =>
+              h.id === houseData.id ? { ...h, address: result.address } : h) } });
           }
         } catch (err) {
           console.error('Address update error:', err);
@@ -639,7 +643,8 @@ function initMap(el, data, highlightId, navigate) {
       }
 
       houseData.id = result.id;
-
+      const md = getState().mapData;
+      if (md) setState({ mapData: { ...md, houses: [...md.houses, { ...houseData }] } });
       marker._isNewlyCreated = false;
 
       if (result.address) {
