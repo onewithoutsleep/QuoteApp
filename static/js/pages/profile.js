@@ -33,6 +33,14 @@ export const profilePage = {
       </div>
     `;
 
+    const cachedProfile = getState().profile;
+    const cachedStats   = getState().stats;
+
+    if (cachedProfile) {
+      root.querySelector('#profile-content').innerHTML = renderProfile(cachedProfile, cachedStats);
+      initProfile(root, cachedProfile);
+    }
+
     const [profileResult, statsResult] = await Promise.allSettled([
       api.getProfile(),
       api.getStats(),
@@ -42,6 +50,7 @@ export const profilePage = {
     const stats   = statsResult.status   === 'fulfilled' ? statsResult.value   : null;
 
     if (stats) setState({ stats });
+    if (profile) setState({ profile });
 
     if (!profile) {
       root.querySelector('#profile-content').innerHTML =

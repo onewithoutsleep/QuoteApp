@@ -6,6 +6,7 @@ let state = {
   expenses: null,
   stats: null,
   settings: null,
+  profile: null,
   mapData: null,
 };
 

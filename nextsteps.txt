@@ -1,0 +1,4 @@
+- merge branch with main
+- Fix login page (make it look nice)
+- add profile page to state
+- 
