@@ -87,7 +87,7 @@ function renderProfile(d, stats) {
       </div>
       <div class="profile-actions">
         <button class="profile-btn" id="edit-profile-btn">Edit Profile</button>
-        <a class="profile-btn" href="/settings">Settings</a>
+        <a class="profile-btn" href="#/settings">Settings</a>
         ${d.cal_token
           ? `<a class="profile-btn profile-btn-secondary"
                href="webcal://${location.host}/calendar/${esc(d.cal_token)}.ics">

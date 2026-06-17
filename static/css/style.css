@@ -14,13 +14,14 @@ body {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 68px;
+    min-height: 68px;
     background: #fff;
     border-top: 1px solid #ddd;
     display: flex;
     align-items: stretch;
     z-index: 1000;
     padding-bottom: env(safe-area-inset-bottom);
+    box-sizing: border-box;
 }
 
 .bottom-nav a {
