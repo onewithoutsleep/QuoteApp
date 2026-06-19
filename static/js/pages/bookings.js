@@ -52,6 +52,12 @@ export const bookingsPage = {
       toggleCalView(root, navigate);
     });
 
+    root.querySelector('#showAllBtn').addEventListener('click', () => {
+      state.activeDate = null;
+      state.monthViewActive = false;
+      toggleCalView(root, navigate);
+    });
+
     if (cached) {
       state.servicesRaw = cached;
       rebuildDataMappings();
@@ -105,6 +111,10 @@ function BaseLayout(showLoading = true) {
           <h2>Bookings</h2>
           <button type="button" class="today-btn" id="todayBtn" title="Go to Today">
             Today
+          </button>
+
+          <button type="button" class="today-btn" id="showAllBtn" title="Show All Bookings">
+            Show All
           </button>
 
           <button type="button" class="month-toggle-btn" id="monthToggleBtn" title="Toggle Month View">

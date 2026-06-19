@@ -61,8 +61,8 @@
 .meta-tag { background: #f0f7ff; border-radius: 6px; padding: 2px 8px; font-size: 12px; color: #2d89ef; font-weight: 500; }
 .quote-notes { font-size: 13px; color: #888; border-top: 1px solid #f0f0f0; padding-top: 8px; margin-bottom: 10px; }
 .quote-actions { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #f0f0f0; padding-top: 12px; }
-.quote-actions a { flex: 1 1 calc(50% - 4px); }
-.quote-actions button { width: 100%; font-size: 14px; padding: 10px 8px; background: #2d89ef; }
+.quote-actions a { flex: 1 1 calc(33.333% - 4px); }
+.quote-actions button { flex: 1 1 calc(33.333% - 4px); font-size: 14px; padding: 10px 8px; background: #2d89ef; }
 .quote-actions button.btn-green { background: #27ae60; }
 .services-section { border-top: 1px solid #f0f0f0; margin-top: 12px; padding-top: 10px; }
 .services-label { font-size: 12px; font-weight: bold; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
